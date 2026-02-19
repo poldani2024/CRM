@@ -13,7 +13,6 @@ let SITES = [];
 let ACCOUNTS = [];
 let accountIdPrefill = null;
 let editingSiteId = null;
-let siteToOpenId = null;
 
 function openCreateModal(){
   editingSiteId = null;
