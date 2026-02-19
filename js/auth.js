@@ -3,6 +3,8 @@ import { auth, providerGoogle, db } from "./firebase.js";
 
 import {
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
   onAuthStateChanged,
 } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-auth.js";
@@ -16,6 +18,17 @@ import {
 
 export const TENANT_ID = "default";
 export const ADMIN_EMAIL = "pedro.l.oldani@gmail.com";
+
+/** iPhone/iPad/Android -> mejor redirect que popup */
+function isMobileDevice() {
+  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+}
+
+/** Browsers embebidos (IG/FB/WhatsApp) suelen romper OAuth */
+export function isInAppBrowser() {
+  const ua = navigator.userAgent || "";
+  return /FBAN|FBAV|Instagram|Line|WhatsApp/i.test(ua);
+}
 
 /** Espera a que Auth tenga el usuario resuelto (o null) */
 export function waitForAuthReady() {
@@ -31,9 +44,24 @@ export function onSession(cb) {
   return onAuthStateChanged(auth, cb);
 }
 
+/** Para mobile redirect: hay que consumir el resultado al cargar la página */
+export async function handleRedirectResult() {
+  try {
+    await getRedirectResult(auth);
+  } catch (e) {
+    // No lo rompemos por esto; solo log
+    console.warn("getRedirectResult error:", e);
+  }
+}
+
 export async function loginGoogle() {
-  // (desktop) popup. Si después querés, lo adaptamos a redirect en mobile.
-  await signInWithPopup(auth, providerGoogle);
+  // Si está dentro de un in-app browser, popup/redirect puede ser inestable
+  // Igual intentamos; el mensaje lo podés mostrar en index.html si querés.
+  if (isMobileDevice()) {
+    await signInWithRedirect(auth, providerGoogle);
+  } else {
+    await signInWithPopup(auth, providerGoogle);
+  }
 }
 
 export async function logout() {
