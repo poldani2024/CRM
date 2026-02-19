@@ -1,1 +1,55 @@
 
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>CRM</title>
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body class="page-min">
+  <div class="center-card">
+    <div class="brand">
+      <div class="logo-badge">CRM</div>
+      <div>
+        <div class="brand-title">CRM Fumigaciones</div>
+        <div class="muted">Ingresá con Google</div>
+      </div>
+    </div>
+
+    <div class="spacer"></div>
+
+    <button id="btnLogin" class="btn btn-primary btn-wide">
+      Ingresar con Google
+    </button>
+
+    <div id="msg" class="muted small" style="margin-top:12px;"></div>
+  </div>
+
+  <script type="module">
+    import { onSession, loginGoogle, getMyProfile } from "./js/auth.js";
+
+    const btn = document.getElementById("btnLogin");
+    const msg = document.getElementById("msg");
+
+    btn.addEventListener("click", async ()=>{
+      btn.disabled = true;
+      msg.textContent = "Abriendo login...";
+      try { await loginGoogle(); }
+      catch (e) { console.error(e); msg.textContent = e?.message || "Error de login"; }
+      finally { btn.disabled = false; }
+    });
+
+    onSession(async (user)=>{
+      if (!user) return;
+      msg.textContent = "Cargando perfil...";
+      const p = await getMyProfile();
+      if (p?.active && ["admin","operator","viewer"].includes(p.role)) {
+        window.location.href = "./pages/accounts.html";
+      } else {
+        window.location.href = "./pages/no_access.html";
+      }
+    });
+  </script>
+</body>
+</html>
