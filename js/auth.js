@@ -1,13 +1,6 @@
 import { db } from "./firebase.js";
 import { doc, getDoc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
-import { TENANT_ID } from "./auth.js"; // si ya está en el mismo archivo, no lo importes
-
-import {
-  doc,
-  getDoc,
-  setDoc,
-  serverTimestamp
-} from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+import { TENANT_ID } from "./auth.js"; // si ya está en el mismo archivo, no lo importe
 
 export const TENANT_ID = "default";
 export const ADMIN_EMAIL = "pedro.l.oldani@gmail.com";
