@@ -1,1 +1,53 @@
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="side-brand">
+      <div class="side-logo" id="tenantLogo">CRM</div>
+      <div class="side-title">
+        <div class="side-name" id="tenantName">CRM</div>
+        <div class="side-sub muted" id="tenantSub">Fumigaciones</div>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <a class="nav-item" data-nav="accounts" href="../pages/accounts.html">
+        <span class="nav-ico">👥</span><span>Cuentas</span>
+      </a>
+      <a class="nav-item" data-nav="contacts" href="../pages/contacts.html">
+        <span class="nav-ico">🧑‍🤝‍🧑</span><span>Contactos</span>
+      </a>
+      <a class="nav-item" data-nav="admin" href="../pages/admin.html">
+        <span class="nav-ico">⚙️</span><span>Admin</span>
+      </a>
+    </nav>
+
+    <div class="side-footer">
+      <div class="userbox">
+        <div class="avatar" id="meAvatar">ME</div>
+        <div class="user-meta">
+          <div class="user-name" id="meName">—</div>
+          <div class="user-email muted small" id="meEmail">—</div>
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-wide" id="btnLogout">Salir</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <button class="iconbtn" id="btnMenu" aria-label="Menú">☰</button>
+
+      <div class="search">
+        <span class="search-ico">🔎</span>
+        <input id="globalSearch" placeholder="Buscar..." />
+      </div>
+
+      <div class="top-actions">
+        <button class="btn btn-ghost" id="btnFilters">Filtros</button>
+        <button class="btn btn-primary" id="btnPrimaryAction">+ Nuevo</button>
+      </div>
+    </header>
+
+    <section class="content" id="pageContent"></section>
+  </main>
+</div>
 
