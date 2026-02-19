@@ -1,6 +1,6 @@
 import { loadShell } from "./ui_shell.js";
 import { requireRole } from "./auth.js";
-import { doc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+import { collection, getDocs, query, where, doc, setDoc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
 import { db } from "./firebase.js";
 import { TENANT_ID } from "./auth.js";
 import { $, toast, escapeHtml } from "./utils.js";
@@ -42,6 +42,36 @@ async function init(){
   `;
 
   $("btnSaveSettings").addEventListener("click", saveSettings);
+}
+async function loadPendingRequests(){
+  const qref = query(
+    collection(db, "tenants", TENANT_ID, "user_requests"),
+    where("status", "==", "pending")
+  );
+  const snap = await getDocs(qref);
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+async function approveUser(uid, role){
+  // 1) crear perfil real
+  const userRef = doc(db, "tenants", TENANT_ID, "users", uid);
+  await setDoc(userRef, {
+    tenantId: TENANT_ID,
+    uid,
+    role,
+    active: true,
+    updatedAt: serverTimestamp()
+  }, { merge:true });
+
+  // 2) marcar request como aprobado
+  const reqRef = doc(db, "tenants", TENANT_ID, "user_requests", uid);
+  await updateDoc(reqRef, {
+    status: "approved",
+    updatedAt: serverTimestamp()
+  });
+
+  toast("Usuario aprobado");
+  window.location.reload();
 }
 
 async function saveSettings(){
