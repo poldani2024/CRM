@@ -27,12 +27,21 @@
   </div>
 
  <script type="module">
-  import {
-    onSession,
-    loginGoogle,
-    getMyProfile,
-    ensureUserRequestExists
-  } from "./js/auth.js";
+ import {
+  onSession,
+  loginGoogle,
+  getMyProfile,
+  ensureUserRequestExists,
+  handleRedirectResult,
+  isInAppBrowser
+} from "./js/auth.js";
+
+await handleRedirectResult();
+
+if (isInAppBrowser()) {
+  // opcional: mensaje para el usuario
+  // msg.textContent = "Si estás abriendo desde Instagram/WhatsApp, abrí en Safari/Chrome para que el login funcione.";
+}
 
   const btn = document.getElementById("btnLogin");
   const msg = document.getElementById("msg");
