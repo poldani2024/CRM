@@ -1,7 +1,7 @@
 import { loadShell } from "./ui_shell.js";
 import { requireRole } from "./auth.js";
 import { auth } from "./firebase.js";
-import { list, create } from "./data_access.js";
+import { list, create, update } from "./data_access.js";
 import { escapeHtml, formatDateTimeAR, $, toast } from "./utils.js";
 
 function getParam(name){
@@ -12,18 +12,41 @@ function getParam(name){
 let SITES = [];
 let ACCOUNTS = [];
 let accountIdPrefill = null;
+let editingSiteId = null;
 
-function openModal(){
-  $("modalBackdrop").style.display = "flex";
-  if (accountIdPrefill) $("s_accountId").value = accountIdPrefill;
-}
+function openCreateModal(){
+  editingSiteId = null;
+  $("modalTitle").textContent = "Nuevo predio";
+  $("btnSave").textContent = "Guardar";
 
-function closeModal(){
-  $("modalBackdrop").style.display = "none";
   $("s_name").value = "";
   $("s_address").value = "";
   $("s_city").value = "";
   $("s_notes").value = "";
+
+  if (accountIdPrefill) $("s_accountId").value = accountIdPrefill;
+  $("modalBackdrop").style.display = "flex";
+}
+
+function openEditModal(siteId){
+  const site = SITES.find(s=>s.id===siteId);
+  if (!site) return toast("No se encontró el predio");
+
+  editingSiteId = site.id;
+  $("modalTitle").textContent = "Editar predio";
+  $("btnSave").textContent = "Guardar cambios";
+
+  $("s_name").value = site.name || "";
+  $("s_accountId").value = site.accountId || "";
+  $("s_address").value = site.address || "";
+  $("s_city").value = site.city || "";
+  $("s_notes").value = site.notes || "";
+
+  $("modalBackdrop").style.display = "flex";
+}
+
+function closeModal(){
+  $("modalBackdrop").style.display = "none";
 }
 
 function render(){
@@ -46,13 +69,23 @@ function render(){
         const upd = site.updatedAt?.toDate ? site.updatedAt.toDate() : null;
         return `
           <div class="card" style="margin-bottom:10px;">
-            <div class="card-title">${escapeHtml(site.name || "—")}</div>
-            <div class="card-sub muted small">
-              ${acc?.id ? `<a href="../pages/account_detail.html?id=${encodeURIComponent(acc.id)}">${escapeHtml(acc.name || "Cuenta")}</a>` : "Sin cuenta"}
-              ${site.city ? `· ${escapeHtml(site.city)}` : ""}
-              ${site.address ? `· ${escapeHtml(site.address)}` : ""}
-              ${upd ? `· Actualizado: ${escapeHtml(formatDateTimeAR(upd))}` : ""}
+            <div class="row" style="justify-content:space-between; gap:10px; align-items:flex-start; flex-wrap:wrap;">
+              <div>
+                <div class="card-title">${escapeHtml(site.name || "—")}</div>
+                <div class="card-sub muted small">
+                  ${acc?.id ? `<a href="../pages/account_detail.html?id=${encodeURIComponent(acc.id)}">${escapeHtml(acc.name || "Cuenta")}</a>` : "Sin cuenta"}
+                  ${site.city ? `· ${escapeHtml(site.city)}` : ""}
+                  ${site.address ? `· ${escapeHtml(site.address)}` : ""}
+                  ${upd ? `· Actualizado: ${escapeHtml(formatDateTimeAR(upd))}` : ""}
+                </div>
+              </div>
+
+              <div class="row" style="gap:8px;">
+                <button class="btn" data-edit-site="${escapeHtml(site.id)}">Editar</button>
+                <button class="btn" data-delete-site="${escapeHtml(site.id)}">Dar de baja</button>
+              </div>
             </div>
+
             ${site.notes ? `<div class="small" style="margin-top:8px;">${escapeHtml(site.notes)}</div>` : ""}
           </div>
         `;
@@ -62,7 +95,7 @@ function render(){
     <div class="modal-backdrop" id="modalBackdrop">
       <div class="modal">
         <div class="modal-head">
-          <div class="modal-title">Nuevo predio</div>
+          <div class="modal-title" id="modalTitle">Nuevo predio</div>
           <button class="btn btn-ghost" id="btnCloseModal">✕</button>
         </div>
 
@@ -103,16 +136,24 @@ function render(){
     </div>
   `;
 
-  $("btnNew").addEventListener("click", openModal);
+  $("btnNew").addEventListener("click", openCreateModal);
   $("btnCloseModal").addEventListener("click", closeModal);
   $("btnCancel").addEventListener("click", closeModal);
   $("btnSave").addEventListener("click", saveSite);
+
+  c.querySelectorAll("[data-edit-site]").forEach(btn=>{
+    btn.addEventListener("click", ()=> openEditModal(btn.dataset.editSite));
+  });
+
+  c.querySelectorAll("[data-delete-site]").forEach(btn=>{
+    btn.addEventListener("click", ()=> deactivateSite(btn.dataset.deleteSite));
+  });
 
   $("s_accountId").innerHTML = ACCOUNTS
     .map(a=>`<option value="${escapeHtml(a.id)}">${escapeHtml(a.name || "—")}</option>`)
     .join("");
 
-  if (accountIdPrefill) $("s_accountId").value = accountIdPrefill;
+  if (accountIdPrefill && !editingSiteId) $("s_accountId").value = accountIdPrefill;
 }
 
 async function saveSite(){
@@ -130,8 +171,14 @@ async function saveSite(){
 
   $("btnSave").disabled = true;
   try{
-    await create("sites", data, auth.currentUser);
-    toast("Predio creado");
+    if (editingSiteId){
+      await update("sites", editingSiteId, data, auth.currentUser);
+      toast("Predio actualizado");
+    } else {
+      await create("sites", data, auth.currentUser);
+      toast("Predio creado");
+    }
+
     closeModal();
     await loadData();
     render();
@@ -143,10 +190,32 @@ async function saveSite(){
   }
 }
 
-async function loadData(){
-  ACCOUNTS = await list("accounts", { order:{ field:"name", dir:"asc" }, max:500 });
+async function deactivateSite(siteId){
+  const site = SITES.find(s=>s.id===siteId);
+  if (!site) return toast("No se encontró el predio");
 
-  const filters = [];
+  const ok = window.confirm(`¿Dar de baja el predio "${site.name || "Sin nombre"}"?`);
+  if (!ok) return;
+
+  try{
+    await update("sites", siteId, { status:"inactive" }, auth.currentUser);
+    toast("Predio dado de baja");
+    await loadData();
+    render();
+  } catch(e){
+    console.error(e);
+    toast(e?.message || "Error dando de baja predio");
+  }
+}
+
+async function loadData(){
+  ACCOUNTS = await list("accounts", {
+    filters: [{ field:"status", op:"==", value:"active" }],
+    order:{ field:"name", dir:"asc" },
+    max:500
+  });
+
+  const filters = [{ field:"status", op:"==", value:"active" }];
   if (accountIdPrefill) filters.push({ field:"accountId", op:"==", value: accountIdPrefill });
 
   SITES = await list("sites", { filters, order:{ field:"updatedAt", dir:"desc" }, max:500 });
@@ -155,15 +224,20 @@ async function loadData(){
 async function init(){
   await requireRole(["admin","operator","viewer"]);
   accountIdPrefill = getParam("accountId");
+  const editId = getParam("editId");
 
   await loadShell({
     activeNav:"sites",
     primaryText:"+ Nuevo predio",
-    onPrimary: ()=> openModal()
+    onPrimary: ()=> openCreateModal()
   });
 
   await loadData();
   render();
+
+  if (editId){
+    openEditModal(editId);
+  }
 }
 
 init();
