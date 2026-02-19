@@ -220,7 +220,12 @@ async function loadData(){
   const filters = [{ field:"status", op:"==", value:"active" }];
   if (accountIdPrefill) filters.push({ field:"accountId", op:"==", value: accountIdPrefill });
 
-  SITES = await list("sites", { filters, order:{ field:"updatedAt", dir:"desc" }, max:500 });
+  SITES = await list("sites", { filters, max:500 });
+  SITES.sort((a,b)=>{
+    const ad = a.updatedAt?.toDate ? a.updatedAt.toDate() : (a.createdAt?.toDate ? a.createdAt.toDate() : new Date(0));
+    const bd = b.updatedAt?.toDate ? b.updatedAt.toDate() : (b.createdAt?.toDate ? b.createdAt.toDate() : new Date(0));
+    return bd - ad;
+  });
 }
 
 async function init(){
