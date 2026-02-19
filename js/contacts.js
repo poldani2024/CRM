@@ -1,7 +1,7 @@
 import { loadShell } from "./ui_shell.js";
 import { requireRole } from "./auth.js";
 import { auth } from "./firebase.js";
-import { list, create } from "./data_access.js";
+import { list, create, update } from "./data_access.js";
 import { escapeHtml, $, toast } from "./utils.js";
 
 function getParam(name){
@@ -12,19 +12,45 @@ function getParam(name){
 let CONTACTS = [];
 let ACCOUNTS = [];
 let accountIdPrefill = null;
+let editContactId = null;
 
-function openModal(){
-  $("modalBackdrop").style.display = "flex";
-  if (accountIdPrefill) $("c_accountId").value = accountIdPrefill;
-}
-function closeModal(){
-  $("modalBackdrop").style.display = "none";
+function openCreateModal(){
+  editContactId = null;
+  $("modalTitle").textContent = "Nuevo contacto";
+  $("btnSave").textContent = "Guardar";
+
   $("c_firstName").value = "";
   $("c_lastName").value = "";
   $("c_role").value = "";
   $("c_email").value = "";
   $("c_mobile").value = "";
   $("c_notes").value = "";
+
+  $("modalBackdrop").style.display = "flex";
+  if (accountIdPrefill) $("c_accountId").value = accountIdPrefill;
+}
+
+function openEditModal(contactId){
+  const contact = CONTACTS.find(c=>c.id===contactId);
+  if (!contact) return toast("No se encontró el contacto");
+
+  editContactId = contact.id;
+  $("modalTitle").textContent = "Editar contacto";
+  $("btnSave").textContent = "Guardar cambios";
+
+  $("c_firstName").value = contact.firstName || "";
+  $("c_lastName").value = contact.lastName || "";
+  $("c_accountId").value = contact.accountId || "";
+  $("c_role").value = contact.role || "";
+  $("c_email").value = contact.email || "";
+  $("c_mobile").value = contact.mobile || "";
+  $("c_notes").value = contact.notes || "";
+
+  $("modalBackdrop").style.display = "flex";
+}
+
+function closeModal(){
+  $("modalBackdrop").style.display = "none";
 }
 
 function render(){
@@ -46,12 +72,19 @@ function render(){
         const acc = ACCOUNTS.find(a=>a.id===ct.accountId);
         return `
           <div class="card" style="margin-bottom:10px;">
-            <div class="card-title">${escapeHtml((ct.lastName||"") + ", " + (ct.firstName||"")).replace(", ", ct.firstName? ", ":"") || "—"}</div>
-            <div class="card-sub muted small">
-              ${escapeHtml(acc?.name || "")}
-              ${ct.role ? `· ${escapeHtml(ct.role)}` : ""}
-              ${ct.mobile ? `· ${escapeHtml(ct.mobile)}` : ""}
-              ${ct.email ? `· ${escapeHtml(ct.email)}` : ""}
+            <div class="row" style="justify-content:space-between; gap:10px; align-items:flex-start; flex-wrap:wrap;">
+              <div>
+                <div class="card-title">${escapeHtml((ct.lastName||"") + ", " + (ct.firstName||"")).replace(", ", ct.firstName? ", ":"") || "—"}</div>
+                <div class="card-sub muted small">
+                  ${escapeHtml(acc?.name || "")}
+                  ${ct.role ? `· ${escapeHtml(ct.role)}` : ""}
+                  ${ct.mobile ? `· ${escapeHtml(ct.mobile)}` : ""}
+                  ${ct.email ? `· ${escapeHtml(ct.email)}` : ""}
+                </div>
+              </div>
+              <div class="row" style="gap:8px;">
+                <button class="btn" data-edit-contact="${escapeHtml(ct.id)}">Editar</button>
+              </div>
             </div>
           </div>
         `;
@@ -62,7 +95,7 @@ function render(){
     <div class="modal-backdrop" id="modalBackdrop">
       <div class="modal">
         <div class="modal-head">
-          <div class="modal-title">Nuevo contacto</div>
+          <div class="modal-title" id="modalTitle">Nuevo contacto</div>
           <button class="btn btn-ghost" id="btnCloseModal">✕</button>
         </div>
 
@@ -112,16 +145,25 @@ function render(){
   `;
 
   // wire
-  $("btnNew").addEventListener("click", openModal);
+  $("btnNew").addEventListener("click", openCreateModal);
   $("btnCloseModal").addEventListener("click", closeModal);
   $("btnCancel").addEventListener("click", closeModal);
   $("btnSave").addEventListener("click", saveContact);
+
+  c.querySelectorAll("[data-edit-contact]").forEach(btn=>{
+    btn.addEventListener("click", ()=> openEditModal(btn.dataset.editContact));
+  });
 
   // fill accounts select
   $("c_accountId").innerHTML = ACCOUNTS
     .map(a=>`<option value="${escapeHtml(a.id)}">${escapeHtml(a.name||"—")}</option>`)
     .join("");
-  if (accountIdPrefill) $("c_accountId").value = accountIdPrefill;
+  if (editContactId){
+    const contact = CONTACTS.find(c=>c.id===editContactId);
+    if (contact) $("c_accountId").value = contact.accountId || "";
+  } else if (accountIdPrefill) {
+    $("c_accountId").value = accountIdPrefill;
+  }
 }
 
 async function saveContact(){
@@ -139,8 +181,14 @@ async function saveContact(){
 
   $("btnSave").disabled = true;
   try{
-    await create("contacts", data, auth.currentUser);
-    toast("Contacto creado");
+    if (editContactId){
+      await update("contacts", editContactId, data, auth.currentUser);
+      toast("Contacto actualizado");
+    } else {
+      await create("contacts", data, auth.currentUser);
+      toast("Contacto creado");
+    }
+
     closeModal();
     await loadData();
     render();
@@ -153,9 +201,13 @@ async function saveContact(){
 }
 
 async function loadData(){
-  ACCOUNTS = await list("accounts", { order:{ field:"name", dir:"asc" }, max: 500 });
+  ACCOUNTS = await list("accounts", {
+    filters: [{ field:"status", op:"==", value:"active" }],
+    order:{ field:"name", dir:"asc" },
+    max: 500
+  });
 
-  const filters = [];
+  const filters = [{ field:"status", op:"==", value:"active" }];
   if (accountIdPrefill) filters.push({ field:"accountId", op:"==", value: accountIdPrefill });
 
   CONTACTS = await list("contacts", { filters, order:{ field:"updatedAt", dir:"desc" }, max: 500 });
@@ -164,15 +216,21 @@ async function loadData(){
 async function init(){
   await requireRole(["admin","operator","viewer"]);
   accountIdPrefill = getParam("accountId");
+  editContactId = getParam("editId");
 
   await loadShell({
     activeNav:"contacts",
     primaryText:"+ Nuevo contacto",
-    onPrimary: ()=> openModal()
+    onPrimary: ()=> openCreateModal()
   });
 
   await loadData();
   render();
+
+  if (editContactId){
+    openEditModal(editContactId);
+    editContactId = null;
+  }
 }
 
 init();

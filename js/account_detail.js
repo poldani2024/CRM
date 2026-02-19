@@ -163,11 +163,16 @@ function renderTab(){
       <div class="panel" style="padding:14px;">
         ${CONTACTS.length ? CONTACTS.map(ct=>`
           <div class="card" style="margin-bottom:10px;">
-            <div class="card-title">${escapeHtml((ct.lastName||"") + ", " + (ct.firstName||"")).replace(", ", ct.firstName? ", ":"") || "—"}</div>
-            <div class="card-sub muted small">
-              ${escapeHtml(ct.role || "")}
-              ${ct.mobile ? `· ${escapeHtml(ct.mobile)}` : ""}
-              ${ct.email ? `· ${escapeHtml(ct.email)}` : ""}
+            <div class="row" style="justify-content:space-between; gap:10px; align-items:flex-start; flex-wrap:wrap;">
+              <div>
+                <div class="card-title">${escapeHtml((ct.lastName||"") + ", " + (ct.firstName||"")).replace(", ", ct.firstName? ", ":"") || "—"}</div>
+                <div class="card-sub muted small">
+                  ${escapeHtml(ct.role || "")}
+                  ${ct.mobile ? `· ${escapeHtml(ct.mobile)}` : ""}
+                  ${ct.email ? `· ${escapeHtml(ct.email)}` : ""}
+                </div>
+              </div>
+              <a class="btn" href="../pages/contacts.html?accountId=${encodeURIComponent(ACCOUNT.id)}&editId=${encodeURIComponent(ct.id)}">Abrir</a>
             </div>
           </div>
         `).join("") : `<div class="muted">Sin contactos todavía.</div>`}
@@ -180,10 +185,15 @@ function renderTab(){
     <div class="panel" style="padding:14px;">
       ${SITES.length ? SITES.map(site=>`
         <div class="card" style="margin-bottom:10px;">
-          <div class="card-title">${escapeHtml(site.name || "—")}</div>
-          <div class="card-sub muted small">
-            ${site.city ? `${escapeHtml(site.city)}` : ""}
-            ${site.address ? `· ${escapeHtml(site.address)}` : ""}
+          <div class="row" style="justify-content:space-between; gap:10px; align-items:flex-start; flex-wrap:wrap;">
+            <div>
+              <div class="card-title">${escapeHtml(site.name || "—")}</div>
+              <div class="card-sub muted small">
+                ${site.city ? `${escapeHtml(site.city)}` : ""}
+                ${site.address ? `· ${escapeHtml(site.address)}` : ""}
+              </div>
+            </div>
+            <a class="btn" href="../pages/sites.html?accountId=${encodeURIComponent(ACCOUNT.id)}&editId=${encodeURIComponent(site.id)}">Abrir</a>
           </div>
           ${site.notes ? `<div class="small" style="margin-top:8px;">${escapeHtml(site.notes)}</div>` : ""}
         </div>
