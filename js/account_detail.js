@@ -264,7 +264,10 @@ async function init(){
       max: 200
     });
     SITES = await list("sites", {
-      filters: [{ field:"accountId", op:"==", value: ACCOUNT.id }],
+      filters: [
+        { field:"accountId", op:"==", value: ACCOUNT.id },
+        { field:"status", op:"==", value:"active" }
+      ],
       order: { field:"updatedAt", dir:"desc" },
       max: 200
     });

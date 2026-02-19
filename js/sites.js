@@ -67,8 +67,9 @@ function render(){
       ${SITES.length ? SITES.map(site=>{
         const acc = ACCOUNTS.find(a=>a.id===site.accountId);
         const upd = site.updatedAt?.toDate ? site.updatedAt.toDate() : null;
+        const inactive = site.status === "inactive";
         return `
-          <div class="card" style="margin-bottom:10px;">
+          <div class="card" style="margin-bottom:10px; ${inactive ? "opacity:.72; border-color:#d48b8b; background:#fff7f7;" : ""}">
             <div class="row" style="justify-content:space-between; gap:10px; align-items:flex-start; flex-wrap:wrap;">
               <div>
                 <div class="card-title">${escapeHtml(site.name || "—")}</div>
@@ -76,6 +77,7 @@ function render(){
                   ${acc?.id ? `<a href="../pages/account_detail.html?id=${encodeURIComponent(acc.id)}">${escapeHtml(acc.name || "Cuenta")}</a>` : "Sin cuenta"}
                   ${site.city ? `· ${escapeHtml(site.city)}` : ""}
                   ${site.address ? `· ${escapeHtml(site.address)}` : ""}
+                  ${inactive ? `· Inactivo` : ""}
                   ${upd ? `· Actualizado: ${escapeHtml(formatDateTimeAR(upd))}` : ""}
                 </div>
               </div>
