@@ -26,38 +26,39 @@
     <div id="msg" class="muted small" style="margin-top:12px;"></div>
   </div>
 
-  <script type="module">
-    import { onSession, loginGoogle, getMyProfile } from "./js/auth.js";
+ <script type="module">
+  import {
+    onSession,
+    loginGoogle,
+    getMyProfile,
+    ensureUserRequestExists
+  } from "./js/auth.js";
+
+  const btn = document.getElementById("btnLogin");
+  const msg = document.getElementById("msg");
+
+  btn.addEventListener("click", async ()=>{
+    btn.disabled = true;
+    msg.textContent = "Abriendo login...";
+    try { await loginGoogle(); }
+    catch (e) { console.error(e); msg.textContent = e?.message || "Error de login"; }
+    finally { btn.disabled = false; }
+  });
+
+  onSession(async (user)=>{
+    if (!user) return;
+
+    msg.textContent = "Cargando perfil...";
     const p = await getMyProfile();
-    
+
     if (p?.active && ["admin","operator","viewer"].includes(p.role)) {
       window.location.href = "./pages/accounts.html";
     } else {
-      await ensureUserRequestExists();
+      await ensureUserRequestExists();   // <- ahora sí existe
       window.location.href = "./pages/no_access.html";
     }
-    
-    const btn = document.getElementById("btnLogin");
-    const msg = document.getElementById("msg");
+  });
+</script>
 
-    btn.addEventListener("click", async ()=>{
-      btn.disabled = true;
-      msg.textContent = "Abriendo login...";
-      try { await loginGoogle(); }
-      catch (e) { console.error(e); msg.textContent = e?.message || "Error de login"; }
-      finally { btn.disabled = false; }
-    });
-
-    onSession(async (user)=>{
-      if (!user) return;
-      msg.textContent = "Cargando perfil...";
-      const p = await getMyProfile();
-      if (p?.active && ["admin","operator","viewer"].includes(p.role)) {
-        window.location.href = "./pages/accounts.html";
-      } else {
-        window.location.href = "./pages/no_access.html";
-      }
-    });
-  </script>
 </body>
 </html>
