@@ -56,24 +56,22 @@ function renderBoard(){
   }
 
   for (const s of STAGES){
-    const arr = byStage[s.key] || [];
-    document.getElementById(`count_${s.key}`).textContent = String(arr.length);
+  const arr = byStage[s.key] || [];
+  document.getElementById(`count_${s.key}`).textContent = String(arr.length);
 
-    const host = document.getElementById(`col_${s.key}`);
-    host.innerHTML = arr.map(a=>{
-      const upd = a.updatedAt?.toDate ? a.updatedAt.toDate() : null;
-      return `
-        <a class="card" href="../pages/account_detail.html?id=${encodeURIComponent(a.id)}">
-          <div class="card-title">${escapeHtml(a.name || "—")}</div>
-          <div class="card-sub muted small">${escapeHtml(typeLabel(a.type))} · ${escapeHtml(a.phone || "")}</div>
-          <div class="card-meta">
-            ${upd ? `<span>Actualizado: ${escapeHtml(formatDateTimeAR(upd))}</span>` : `<span class="muted">—</span>`}
-          </div>
-        </a>
-      `;
-    }).join("");
-  }
+  const host = document.getElementById(`col_${s.key}`);
+
+  host.innerHTML = arr.map(a=>{ ... }).join("");
+
+  // 👇 ESTO VA DESPUÉS
+  host.querySelectorAll(".card").forEach(card=>{
+    card.addEventListener("click", ()=>{
+      const id = card.dataset.id;
+      window.location.href = `../pages/account_detail.html?id=${encodeURIComponent(id)}`;
+    });
+  });
 }
+
 
 function typeLabel(t){
   if (t==="business") return "Empresa";
@@ -137,5 +135,53 @@ async function init(){
   await loadData();
   renderBoard();
 }
+import { update } from "./data_access.js";
 
+let draggedId = null;
+
+function enableDragDrop(){
+  // Cards: drag start/end
+  document.querySelectorAll(".card").forEach(card=>{
+    card.addEventListener("dragstart", (e)=>{
+      draggedId = card.dataset.id;
+      card.classList.add("dragging");
+    });
+
+    card.addEventListener("dragend", ()=>{
+      card.classList.remove("dragging");
+      draggedId = null;
+    });
+  });
+
+  // Columns: allow drop
+  document.querySelectorAll(".col").forEach(col=>{
+    col.addEventListener("dragover", (e)=> e.preventDefault());
+
+    col.addEventListener("drop", async (e)=>{
+      e.preventDefault();
+      if (!draggedId) return;
+
+      // detectar stage destino por el id="col_{stage}"
+      const cardsHost = col.querySelector(".cards");
+      const newStage = cardsHost.id.replace("col_","");
+
+      const acc = ACCOUNTS.find(a=>a.id === draggedId);
+      if (!acc) return;
+      if ((acc.stage || "contacted") === newStage) return;
+
+      try{
+        await update("accounts", draggedId, { stage: newStage }, auth.currentUser);
+        toast("Movido ✅");
+
+        await loadData();
+        renderBoard();
+
+      } catch(err){
+        console.error(err);
+        toast("Error moviendo");
+      }
+    });
+  });
+}
+enableDragDrop();
 init();
