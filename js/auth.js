@@ -1,9 +1,6 @@
-import { auth, providerGoogle, db } from "./firebase.js";
-import {
-  signInWithPopup,
-  signOut,
-  onAuthStateChanged
-} from "https://www.gstatic.com/firebasejs/12.9.0/firebase-auth.js";
+import { db } from "./firebase.js";
+import { doc, getDoc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+import { TENANT_ID } from "./auth.js"; // si ya está en el mismo archivo, no lo importes
 
 import {
   doc,
@@ -89,7 +86,24 @@ export async function getMyProfile() {
 
   return snap.data();
 }
+export async function ensureUserRequestExists(){
+  const user = auth.currentUser || await waitForAuthReady();
+  if (!user) return;
 
+  const ref = doc(db, "tenants", TENANT_ID, "user_requests", user.uid);
+  const snap = await getDoc(ref);
+  if (snap.exists()) return;
+
+  await setDoc(ref, {
+    tenantId: TENANT_ID,
+    uid: user.uid,
+    email: user.email || "",
+    displayName: user.displayName || "",
+    status: "pending",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+}
 export async function requireRole(allowedRoles = ["admin", "operator", "viewer"]) {
   // IMPORTANTE: esperar auth
   const user = auth.currentUser || await waitForAuthReady();
