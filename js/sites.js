@@ -224,7 +224,7 @@ async function loadData(){
 async function init(){
   await requireRole(["admin","operator","viewer"]);
   accountIdPrefill = getParam("accountId");
-  const siteToOpenId = getParam("editId");
+  siteToOpenId = getParam("editId");
 
   await loadShell({
     activeNav:"sites",
@@ -237,6 +237,7 @@ async function init(){
 
   if (siteToOpenId){
     openEditModal(siteToOpenId);
+    siteToOpenId = null;
   }
 }
 
