@@ -28,7 +28,15 @@
 
   <script type="module">
     import { onSession, loginGoogle, getMyProfile } from "./js/auth.js";
-
+    const p = await getMyProfile();
+    
+    if (p?.active && ["admin","operator","viewer"].includes(p.role)) {
+      window.location.href = "./pages/accounts.html";
+    } else {
+      await ensureUserRequestExists();
+      window.location.href = "./pages/no_access.html";
+    }
+    
     const btn = document.getElementById("btnLogin");
     const msg = document.getElementById("msg");
 
