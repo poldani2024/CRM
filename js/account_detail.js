@@ -11,6 +11,7 @@ function getParam(name){
 
 let ACCOUNT = null;
 let CONTACTS = [];
+let SITES = [];
 let activeTab = "summary";
 
 function render(){
@@ -35,7 +36,8 @@ function render(){
 
         <div class="row" style="gap:10px; flex-wrap:wrap;">
           <button class="btn" id="btnEdit">Editar</button>
-          <a class="btn btn-primary" href="../pages/contacts.html?accountId=${encodeURIComponent(ACCOUNT.id)}">+ Nuevo contacto</a>
+          <a class="btn" href="../pages/contacts.html?accountId=${encodeURIComponent(ACCOUNT.id)}">+ Nuevo contacto</a>
+          <a class="btn btn-primary" href="../pages/sites.html?accountId=${encodeURIComponent(ACCOUNT.id)}">+ Nuevo predio</a>
         </div>
       </div>
 
@@ -44,6 +46,7 @@ function render(){
       <div class="tabs">
         <button class="tab ${activeTab==="summary"?"active":""}" data-tab="summary">Resumen</button>
         <button class="tab ${activeTab==="contacts"?"active":""}" data-tab="contacts">Contactos</button>
+        <button class="tab ${activeTab==="sites"?"active":""}" data-tab="sites">Predios</button>
       </div>
     </div>
 
@@ -155,19 +158,36 @@ function renderTab(){
     return;
   }
 
-  // contacts tab
+  if (activeTab === "contacts"){
+    host.innerHTML = `
+      <div class="panel" style="padding:14px;">
+        ${CONTACTS.length ? CONTACTS.map(ct=>`
+          <div class="card" style="margin-bottom:10px;">
+            <div class="card-title">${escapeHtml((ct.lastName||"") + ", " + (ct.firstName||"")).replace(", ", ct.firstName? ", ":"") || "—"}</div>
+            <div class="card-sub muted small">
+              ${escapeHtml(ct.role || "")}
+              ${ct.mobile ? `· ${escapeHtml(ct.mobile)}` : ""}
+              ${ct.email ? `· ${escapeHtml(ct.email)}` : ""}
+            </div>
+          </div>
+        `).join("") : `<div class="muted">Sin contactos todavía.</div>`}
+      </div>
+    `;
+    return;
+  }
+
   host.innerHTML = `
     <div class="panel" style="padding:14px;">
-      ${CONTACTS.length ? CONTACTS.map(ct=>`
+      ${SITES.length ? SITES.map(site=>`
         <div class="card" style="margin-bottom:10px;">
-          <div class="card-title">${escapeHtml((ct.lastName||"") + ", " + (ct.firstName||"")).replace(", ", ct.firstName? ", ":"") || "—"}</div>
+          <div class="card-title">${escapeHtml(site.name || "—")}</div>
           <div class="card-sub muted small">
-            ${escapeHtml(ct.role || "")}
-            ${ct.mobile ? `· ${escapeHtml(ct.mobile)}` : ""}
-            ${ct.email ? `· ${escapeHtml(ct.email)}` : ""}
+            ${site.city ? `${escapeHtml(site.city)}` : ""}
+            ${site.address ? `· ${escapeHtml(site.address)}` : ""}
           </div>
+          ${site.notes ? `<div class="small" style="margin-top:8px;">${escapeHtml(site.notes)}</div>` : ""}
         </div>
-      `).join("") : `<div class="muted">Sin contactos todavía.</div>`}
+      `).join("") : `<div class="muted">Sin predios todavía.</div>`}
     </div>
   `;
 }
@@ -230,6 +250,14 @@ async function init(){
   if (ACCOUNT){
     CONTACTS = await list("contacts", {
       filters: [{ field:"accountId", op:"==", value: ACCOUNT.id }],
+      order: { field:"updatedAt", dir:"desc" },
+      max: 200
+    });
+    SITES = await list("sites", {
+      filters: [
+        { field:"accountId", op:"==", value: ACCOUNT.id },
+        { field:"status", op:"==", value:"active" }
+      ],
       order: { field:"updatedAt", dir:"desc" },
       max: 200
     });
