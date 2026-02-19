@@ -1,1 +1,68 @@
 
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Cuentas</title>
+  <link rel="stylesheet" href="../css/styles.css" />
+</head>
+<body>
+  <div id="appShell"></div>
+
+  <!-- Modal Nueva Cuenta -->
+  <div class="modal-backdrop" id="modalBackdrop">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">Nueva Cuenta</div>
+        <button class="btn btn-ghost" id="btnCloseModal">✕</button>
+      </div>
+
+      <div class="spacer"></div>
+
+      <div class="grid2">
+        <div class="field">
+          <label>Nombre</label>
+          <input id="a_name" placeholder="Ej: ACME S.A." />
+        </div>
+
+        <div class="field">
+          <label>Tipo</label>
+          <select id="a_type">
+            <option value="business">Empresa</option>
+            <option value="commercial">Comercial</option>
+            <option value="residential">Residencial</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Estado (board)</label>
+          <select id="a_stage">
+            <option value="contacted">Contactado</option>
+            <option value="negotiation">Negociación</option>
+            <option value="offer_sent">Oferta enviada</option>
+            <option value="closed">Cerrado</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Teléfono</label>
+          <input id="a_phone" placeholder="Ej: +549341..." />
+        </div>
+
+        <div class="field" style="grid-column:1/-1;">
+          <label>Comentarios</label>
+          <textarea id="a_notes" placeholder="Notas internas..."></textarea>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn" id="btnCancel">Cancelar</button>
+        <button class="btn btn-primary" id="btnSave">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="../js/accounts.js"></script>
+</body>
+</html>
