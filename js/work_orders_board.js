@@ -13,9 +13,11 @@ const COLUMNS = [
 
 let WORK_ORDERS = [];
 let EMPLOYEES = [];
+let SITES = [];
 let draggedOrderId = null;
 let justDragged = false;
 let COMPANY_NAME = "Mi Empresa";
+let COMPANY_LOGO = "";
 let filters = {
   employeeId: "",
   account: "",
@@ -52,6 +54,14 @@ function employeeLabel(employee){
   return `${employee.lastName || ""}${employee.lastName && employee.firstName ? ", " : ""}${employee.firstName || ""}`.trim() || "Sin empleado";
 }
 
+function siteInfoForOrder(order){
+  const byId = SITES.find(site=> site.id && order.siteId && site.id === order.siteId);
+  const byName = SITES.find(site=> (site.name || "") === (order.siteName || ""));
+  const site = byId || byName || null;
+  const siteName = site?.name || order.siteName || "—";
+  const serviceAddress = [site?.address || "", site?.city || ""].filter(Boolean).join(" · ") || "—";
+  return { siteName, serviceAddress };
+}
 
 function toDateKey(d){
   const n = new Date(d);
@@ -117,7 +127,7 @@ function openOrderModal(orderId){
   if (!order) return;
 
   const employee = order.employeeName || "Sin empleado";
-  const serviceAddress = [order.siteName || "", order.siteAddress || "", order.siteCity || ""].filter(Boolean).join(" · ") || "—";
+  const siteInfo = siteInfoForOrder(order);
 
   $("woModalTitle").textContent = `Orden de Trabajo ${order.orderNumber || ""}`;
   $("wo_m_number").textContent = order.orderNumber || "—";
@@ -125,12 +135,13 @@ function openOrderModal(orderId){
   $("wo_m_visit").textContent = normalizeOrderDate(order) || "—";
   $("wo_m_employee").textContent = employee;
   $("wo_m_company").textContent = order.accountName || "—";
-  $("wo_m_site").textContent = serviceAddress;
+  $("wo_m_siteName").textContent = siteInfo.siteName;
+  $("wo_m_site").textContent = siteInfo.serviceAddress;
   $("wo_m_status").textContent = order.status || "—";
   $("wo_m_obs").textContent = order.observations || "—";
 
   const pdfBtn = $("btnGenerateOrderPdf");
-  pdfBtn.onclick = ()=> generateOrderPdf(order, employee, serviceAddress);
+  pdfBtn.onclick = ()=> generateOrderPdf(order, employee, siteInfo);
 
   $("woModalBackdrop").style.display = "flex";
 }
@@ -139,9 +150,10 @@ function closeOrderModal(){
   $("woModalBackdrop").style.display = "none";
 }
 
-function generateOrderPdf(order, employee, serviceAddress){
+function generateOrderPdf(order, employee, siteInfo){
   const generated = toDateKey(new Date());
   const visitDate = normalizeOrderDate(order) || "—";
+  const logoBlock = COMPANY_LOGO ? `<div style="text-align:center;margin-bottom:4mm;"><img src="${COMPANY_LOGO}" alt="logo" style="max-height:24mm; max-width:70mm; object-fit:contain;"></div>` : "";
   const html = `
     <html>
       <head>
@@ -160,7 +172,7 @@ function generateOrderPdf(order, employee, serviceAddress){
       </head>
       <body>
         <div class="sheet">
-          <div class="head">
+          ${logoBlock}<div class="head">
             <div class="company">${COMPANY_NAME}</div>
             <div class="title">Orden de Trabajo</div>
           </div>
@@ -168,7 +180,8 @@ function generateOrderPdf(order, employee, serviceAddress){
           <div class="row"><span class="label">Fecha de generación:</span> ${generated}</div>
           <div class="row"><span class="label">Empleado asignado:</span> ${employee}</div>
           <div class="row"><span class="label">Empresa:</span> ${order.accountName || "—"}</div>
-          <div class="row"><span class="label">Domicilio servicio:</span> ${serviceAddress}</div>
+          <div class="row"><span class="label">Predio:</span> ${siteInfo.siteName}</div>
+          <div class="row"><span class="label">Domicilio servicio:</span> ${siteInfo.serviceAddress}</div>
           <div class="row"><span class="label">Fecha de realización:</span> ${visitDate}</div>
           <div class="row"><span class="label">Estado:</span> ${order.status || "—"}</div>
           <div class="obs"><span class="label">Observaciones:</span><br>${escapeHtml(order.observations || "")}</div>
@@ -330,6 +343,7 @@ function render(){
           <div class="field"><label>Fecha realización</label><div id="wo_m_visit" class="muted">—</div></div>
           <div class="field"><label>Empleado</label><div id="wo_m_employee" class="muted">—</div></div>
           <div class="field"><label>Empresa</label><div id="wo_m_company" class="muted">—</div></div>
+          <div class="field"><label>Predio</label><div id="wo_m_siteName" class="muted">—</div></div>
           <div class="field"><label>Domicilio servicio</label><div id="wo_m_site" class="muted">—</div></div>
           <div class="field"><label>Estado</label><div id="wo_m_status" class="muted">—</div></div>
           <div class="field" style="grid-column:1/-1;"><label>Observaciones</label><div id="wo_m_obs" class="muted" style="white-space:pre-wrap; min-height:120px; border:1px solid var(--line); border-radius:8px; padding:8px;">—</div></div>
@@ -453,6 +467,11 @@ async function loadData(){
     max: 500
   });
 
+  SITES = await list("sites", {
+    order: { field:"name", dir:"asc" },
+    max: 2000
+  });
+
   WORK_ORDERS = await list("work_orders", {
     order: { field:"createdAt", dir:"desc" },
     max: 2000
@@ -467,6 +486,7 @@ async function loadSettings(){
     if (snap.exists()){
       const data = snap.data();
       COMPANY_NAME = data?.companyName || COMPANY_NAME;
+      COMPANY_LOGO = data?.logoPath || "";
     }
   } catch(err){
     console.warn("No se pudo cargar settings/main", err);
