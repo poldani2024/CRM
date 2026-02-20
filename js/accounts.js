@@ -1,8 +1,7 @@
-// ✅ CAMBIO 1: se agrega "update" acá (y se elimina el import duplicado más abajo)
 import { loadShell } from "./ui_shell.js";
 import { requireRole } from "./auth.js";
 import { auth } from "./firebase.js";
-import { list, create, update } from "./data_access.js"; // ✅ CAMBIO
+import { list, create, update } from "./data_access.js";
 import { escapeHtml, formatDateTimeAR, $, toast } from "./utils.js";
 
 const STAGES = [
@@ -47,48 +46,57 @@ function stageLabel(k){
   return STAGES.find(s=>s.key===k)?.label || k;
 }
 
-let draggedId = null; // ✅ CAMBIO: definido antes para usar en renderBoard -> enableDragDrop
+let draggedId = null;
+let justDragged = false;
 
 function enableDragDrop(){
-  // Cards: drag start/end
   document.querySelectorAll(".card").forEach(card=>{
-    // ✅ CAMBIO: forzar draggable por si el navegador/DOM lo pierde
-    card.setAttribute("draggable","true");
+    card.setAttribute("draggable", "true");
 
     card.addEventListener("dragstart", ()=>{
       draggedId = card.dataset.id;
+      justDragged = true;
       card.classList.add("dragging");
     });
 
     card.addEventListener("dragend", ()=>{
       card.classList.remove("dragging");
       draggedId = null;
+      window.setTimeout(()=>{ justDragged = false; }, 60);
     });
   });
 
-  // Columns: allow drop
   document.querySelectorAll(".col").forEach(col=>{
-    col.addEventListener("dragover", (e)=> e.preventDefault());
+    col.addEventListener("dragover", ev=>{
+      ev.preventDefault();
+      col.classList.add("drag-over");
+    });
 
-    col.addEventListener("drop", async (e)=>{
-      e.preventDefault();
+    col.addEventListener("dragleave", ()=>{
+      col.classList.remove("drag-over");
+    });
+
+    col.addEventListener("drop", async ev=>{
+      ev.preventDefault();
+      col.classList.remove("drag-over");
       if (!draggedId) return;
 
-      // detectar stage destino por el id="col_{stage}"
       const cardsHost = col.querySelector(".cards");
-      const newStage = cardsHost.id.replace("col_","");
+      const newStage = cardsHost.id.replace("col_", "");
 
       const acc = ACCOUNTS.find(a=>a.id === draggedId);
       if (!acc) return;
       if (normalizeStage(acc.stage) === newStage) return;
 
       try{
-        await update("accounts", draggedId, { stage: newStage, status: stageToAccountStatus(newStage) }, auth.currentUser);
+        await update("accounts", draggedId, {
+          stage: newStage,
+          status: stageToAccountStatus(newStage)
+        }, auth.currentUser);
         toast("Movido ✅");
 
         await loadData();
         renderBoard();
-
       } catch(err){
         console.error(err);
         toast("Error moviendo");
@@ -128,8 +136,7 @@ function renderBoard(){
 
     const host = document.getElementById(`col_${s.key}`);
 
-    // ✅ CAMBIO 2: reemplaza el "..." por el render real de cards + draggable + data-id
-    host.innerHTML = arr.map(a=>{
+        host.innerHTML = arr.map(a=>{
       const upd = a.updatedAt?.toDate ? a.updatedAt.toDate() : null;
       return `
         <div class="card" draggable="true" data-id="${a.id}">
@@ -146,17 +153,16 @@ function renderBoard(){
       `;
     }).join("");
 
-    // 👇 (ya estaba, sin tocar lógica)
     host.querySelectorAll(".card").forEach(card=>{
       card.addEventListener("click", ()=>{
+        if (justDragged) return;
         const id = card.dataset.id;
         window.location.href = `../pages/account_detail.html?id=${encodeURIComponent(id)}`;
       });
     });
   }
 
-  // ✅ CAMBIO 3: se llama acá (después de renderizar) y NO al final del archivo
-  enableDragDrop();
+    enableDragDrop();
 }
 
 function typeLabel(t){
@@ -246,5 +252,4 @@ async function init(){
   renderBoard();
 }
 
-// ✅ (CAMBIO) se mantiene init al final, y se elimina enableDragDrop() suelto
 init();
