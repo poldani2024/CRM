@@ -33,8 +33,16 @@ function filteredConfirmedVisits(){
   const siteId = $("f_site")?.value || "";
   const date = $("f_date")?.value || "";
 
+  const visitsWithActiveOrder = new Set(
+    WORK_ORDERS
+      .filter(order=> order?.visitId)
+      .filter(order=> (order.status || "") !== "Cancelada" && order.active !== false)
+      .map(order=> order.visitId)
+  );
+
   return VISITS
     .filter(v=> String(v.status || "").toLowerCase() === "confirmed")
+    .filter(v=> !visitsWithActiveOrder.has(v.id))
     .filter(v=> !accountId || v.accountId === accountId)
     .filter(v=> !siteId || v.siteId === siteId)
     .filter(v=> !date || parseVisitDate(v) === date)
