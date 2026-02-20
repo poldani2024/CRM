@@ -27,11 +27,28 @@
         </div>
 
         <div class="field">
-          <label>Tipo</label>
+          <label>Tipo de cliente</label>
           <select id="a_type">
-            <option value="business">Empresa</option>
-            <option value="commercial">Comercial</option>
-            <option value="residential">Residencial</option>
+            <option value="bank">Banco</option>
+            <option value="building">Edificio</option>
+            <option value="warehouse">Depósito</option>
+            <option value="store">Local</option>
+            <option value="plant">Planta</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Frecuencia de visita (unidad)</label>
+          <input id="a_visitUnit" type="number" min="1" step="1" value="1" />
+        </div>
+
+        <div class="field">
+          <label>Frecuencia de visita (período)</label>
+          <select id="a_visitPeriod">
+            <option value="day">Día</option>
+            <option value="week">Semana</option>
+            <option value="month">Mes</option>
+            <option value="year">Año</option>
           </select>
         </div>
 
