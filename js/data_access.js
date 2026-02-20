@@ -2,7 +2,7 @@ import { db } from "./firebase.js";
 import { TENANT_ID } from "./auth.js";
 import {
   collection, doc, addDoc, setDoc, getDoc, getDocs,
-  query, where, orderBy, limit, serverTimestamp
+  query, where, orderBy, limit, serverTimestamp, deleteDoc
 } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
 
 export function colRef(name){
@@ -53,4 +53,9 @@ export async function update(colName, id, data, user){
     updatedAt: serverTimestamp(),
     updatedBy: user?.uid || null
   }, { merge:true });
+}
+
+export async function remove(colName, id){
+  const ref = doc(db, "tenants", TENANT_ID, colName, id);
+  await deleteDoc(ref);
 }
