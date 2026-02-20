@@ -16,7 +16,9 @@ let draggedOrderId = null;
 let filters = {
   employeeId: "",
   account: "",
-  site: ""
+  site: "",
+  dateMode: "today",
+  date: ""
 };
 
 function statusToColumn(status){
@@ -47,11 +49,77 @@ function employeeLabel(employee){
   return `${employee.lastName || ""}${employee.lastName && employee.firstName ? ", " : ""}${employee.firstName || ""}`.trim() || "Sin empleado";
 }
 
+
+function toDateKey(d){
+  const n = new Date(d);
+  const yyyy = n.getFullYear();
+  const mm = String(n.getMonth() + 1).padStart(2, "0");
+  const dd = String(n.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function parseDateKey(raw){
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(raw || ""))) return null;
+  const [yyyy, mm, dd] = String(raw).split("-").map(Number);
+  return new Date(yyyy, mm - 1, dd);
+}
+
+function normalizeOrderDate(order){
+  const source = order?.visitDate || "";
+  if (typeof source === "string" && /^\d{4}-\d{2}-\d{2}$/.test(source)) return source;
+  const d = new Date(source);
+  if (Number.isNaN(d.getTime())) return "";
+  return toDateKey(d);
+}
+
+function dayRange(baseDate){
+  const key = toDateKey(baseDate);
+  return { start:key, end:key };
+}
+
+function weekRange(baseDate, offsetWeeks = 0){
+  const d = new Date(baseDate);
+  const day = d.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + mondayOffset + offsetWeeks * 7);
+  const start = new Date(d);
+  const end = new Date(d);
+  end.setDate(end.getDate() + 6);
+  return { start: toDateKey(start), end: toDateKey(end) };
+}
+
+function getDateRangeFromFilters(){
+  const today = new Date();
+  if (filters.dateMode === "yesterday"){
+    const d = new Date(today);
+    d.setDate(d.getDate() - 1);
+    return dayRange(d);
+  }
+  if (filters.dateMode === "tomorrow"){
+    const d = new Date(today);
+    d.setDate(d.getDate() + 1);
+    return dayRange(d);
+  }
+  if (filters.dateMode === "this_week") return weekRange(today, 0);
+  if (filters.dateMode === "next_week") return weekRange(today, 1);
+
+  const picked = parseDateKey(filters.date) || today;
+  return dayRange(picked);
+}
+
+
 function getFilteredOrders(){
+  const range = getDateRangeFromFilters();
+
   return WORK_ORDERS
     .filter(order=> !filters.employeeId || (order.employeeId || "no_employee") === filters.employeeId)
     .filter(order=> !filters.account || (order.accountName || "") === filters.account)
-    .filter(order=> !filters.site || (order.siteName || "") === filters.site);
+    .filter(order=> !filters.site || (order.siteName || "") === filters.site)
+    .filter(order=>{
+      const d = normalizeOrderDate(order);
+      if (!d) return false;
+      return d >= range.start && d <= range.end;
+    });
 }
 
 function buildRows(filteredOrders){
@@ -100,6 +168,7 @@ function render(){
   const companies = uniqueOrderValues("accountName");
   const sites = uniqueOrderValues("siteName");
   const c = $("pageContent");
+  const activeRange = getDateRangeFromFilters();
 
   c.innerHTML = `
     <div class="section-title">Tablero OT (Drag & Drop)</div>
@@ -128,8 +197,24 @@ function render(){
             ${sites.map(name=>`<option value="${escapeHtml(name)}" ${filters.site===name?"selected":""}>${escapeHtml(name)}</option>`).join("")}
           </select>
         </div>
+        <div class="field">
+          <label>Período</label>
+          <select id="board_filter_date_mode">
+            <option value="today" ${filters.dateMode==="today"?"selected":""}>Hoy</option>
+            <option value="yesterday" ${filters.dateMode==="yesterday"?"selected":""}>Ayer</option>
+            <option value="tomorrow" ${filters.dateMode==="tomorrow"?"selected":""}>Mañana</option>
+            <option value="this_week" ${filters.dateMode==="this_week"?"selected":""}>Semana actual</option>
+            <option value="next_week" ${filters.dateMode==="next_week"?"selected":""}>Próxima semana</option>
+            <option value="custom" ${filters.dateMode==="custom"?"selected":""}>Fecha específica</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Fecha</label>
+          <input id="board_filter_date" type="date" value="${escapeHtml(filters.date || toDateKey(new Date()))}" ${filters.dateMode==="custom"?"":"disabled"} />
+        </div>
         <button class="btn" id="board_clear_filters">Limpiar</button>
       </div>
+      <div class="muted small" style="margin-top:8px;">Mostrando OT desde ${escapeHtml(activeRange.start)} hasta ${escapeHtml(activeRange.end)}</div>
     </div>
 
     <div class="spacer"></div>
@@ -173,8 +258,20 @@ function wireFilterEvents(){
     filters.site = $("board_filter_site").value;
     render();
   });
+  $("board_filter_date_mode")?.addEventListener("change", ()=>{
+    filters.dateMode = $("board_filter_date_mode").value;
+    if (filters.dateMode !== "custom" && !filters.date){
+      filters.date = toDateKey(new Date());
+    }
+    render();
+  });
+  $("board_filter_date")?.addEventListener("change", ()=>{
+    filters.date = $("board_filter_date").value;
+    filters.dateMode = "custom";
+    render();
+  });
   $("board_clear_filters")?.addEventListener("click", ()=>{
-    filters = { employeeId:"", account:"", site:"" };
+    filters = { employeeId:"", account:"", site:"", dateMode:"today", date:toDateKey(new Date()) };
     render();
   });
 }
@@ -261,6 +358,7 @@ async function init(){
     }
   });
 
+  filters.date = toDateKey(new Date());
   await loadData();
   render();
 }
