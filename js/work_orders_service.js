@@ -14,6 +14,18 @@ function padSequence(n){
   return String(n).padStart(5, "0");
 }
 
+function normalizeVisitDate(source){
+  if (!source) return "";
+  if (typeof source === "string"){
+    if (/^\d{4}-\d{2}-\d{2}$/.test(source)) return source;
+    const d = new Date(source);
+    return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+  }
+  if (source?.toDate) return source.toDate().toISOString().slice(0, 10);
+  const d = new Date(source);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+}
+
 export async function getNextWorkOrderNumber(year){
   const yearValue = Number(year);
   const seqRef = doc(db, "tenants", TENANT_ID, "settings", `work_order_seq_${yearValue}`);
@@ -42,16 +54,30 @@ export async function createWorkOrder({
   generatedBy
 }){
   const visitDateSource = visit?.plannedDate || visit?.scheduledFor || visit?.date || "";
-  const visitDate = typeof visitDateSource === "string"
-    ? visitDateSource
-    : (visitDateSource?.toDate ? visitDateSource.toDate().toISOString().slice(0, 10) : "");
+  const visitDate = normalizeVisitDate(visitDateSource);
   const year = Number(String(visitDate || "").slice(0, 4)) || new Date().getFullYear();
   const orderNumber = await getNextWorkOrderNumber(year);
+
+  let finalVisitId = visitId || "";
+  if (!finalVisitId && visitDate && (site?.id || visit?.siteId)){
+    const createdVisitRef = await addDoc(collection(db, "tenants", TENANT_ID, "visits"), {
+      tenantId: TENANT_ID,
+      siteId: site?.id || visit?.siteId || "",
+      accountId: account?.id || visit?.accountId || "",
+      plannedDate: visitDate,
+      status: "confirmed",
+      createdBy: generatedBy?.uid || null,
+      updatedBy: generatedBy?.uid || null,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+    finalVisitId = createdVisitRef.id;
+  }
 
   const payload = {
     orderNumber,
     year: Number(year),
-    visitId: visitId || "",
+    visitId: finalVisitId,
     generatedAt: serverTimestamp(),
     visitDate,
     employeeId: employee?.id || "",
@@ -72,11 +98,15 @@ export async function createWorkOrder({
 
   const ref = await addDoc(collection(db, "tenants", TENANT_ID, "work_orders"), payload);
 
-  if (visitId){
-    const visitRef = doc(db, "tenants", TENANT_ID, "visits", visitId);
+  if (finalVisitId){
+    const visitRef = doc(db, "tenants", TENANT_ID, "visits", finalVisitId);
     const visitSnap = await getDoc(visitRef);
     if (visitSnap.exists()){
       await updateDoc(visitRef, {
+        siteId: payload.siteId,
+        accountId: payload.accountId,
+        plannedDate: visitDate,
+        status: "confirmed",
         assignedEmployeeId: payload.employeeId,
         assignedEmployeeName: payload.employeeName,
         workOrderId: ref.id,
