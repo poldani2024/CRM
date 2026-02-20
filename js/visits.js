@@ -14,10 +14,11 @@ const PERIOD_DAYS = {
 
 const STATUS_OPTIONS = [
   { value: "confirmed", label: "Confirmada", icon: "🟠" },
+  { value: "in_progress", label: "En ejecución", icon: "🔵" },
+  { value: "postponed", label: "Postergada", icon: "🟣" },
   { value: "completed", label: "Concretada", icon: "✅" },
   { value: "missed", label: "No realizada", icon: "⛔" },
-  { value: "cancelled", label: "Cancelada", icon: "⚫" },
-  { value: "estimated", label: "Solo estimada", icon: "🟡" }
+  { value: "cancelled", label: "Cancelada", icon: "⚫" }
 ];
 
 let ACCOUNTS = [];
@@ -90,14 +91,18 @@ function planningDatesForSite(account, endDate){
 function normalizeStatus(raw){
   const s = String(raw || "").toLowerCase();
   if (["confirmed", "confirmada", "confirmado"].includes(s)) return "confirmed";
+  if (["in_progress", "en_ejecucion", "en ejecución", "ejecucion", "ejecución"].includes(s)) return "in_progress";
+  if (["postponed", "postergada", "postergado"].includes(s)) return "postponed";
   if (["completed", "done", "concretada", "realizada"].includes(s)) return "completed";
-  if (["missed", "not_done", "no_realizada", "vencida"].includes(s)) return "missed";
+  if (["missed", "not_done", "no_realizada", "vencida", "no realizada"].includes(s)) return "missed";
   if (["cancelled", "canceled", "cancelada"].includes(s)) return "cancelled";
   return "estimated";
 }
 
 function statusClass(status){
   if (status === "confirmed") return "is-confirmed";
+  if (status === "in_progress") return "is-in-progress";
+  if (status === "postponed") return "is-postponed";
   if (status === "completed") return "is-completed";
   if (status === "missed") return "is-missed";
   if (status === "cancelled") return "is-cancelled";
@@ -106,6 +111,8 @@ function statusClass(status){
 
 function statusLabel(status){
   if (status === "confirmed") return "Confirmada";
+  if (status === "in_progress") return "En ejecución";
+  if (status === "postponed") return "Postergada";
   if (status === "completed") return "Concretada";
   if (status === "missed") return "No realizada";
   if (status === "cancelled") return "Cancelada";
@@ -411,6 +418,8 @@ function render(){
       <div class="row" style="gap:14px; flex-wrap:wrap;">
         <div class="legend-item"><span class="legend-dot is-estimated"></span> Estimada</div>
         <div class="legend-item"><span class="legend-dot is-confirmed"></span> Confirmada</div>
+        <div class="legend-item"><span class="legend-dot is-in-progress"></span> En ejecución</div>
+        <div class="legend-item"><span class="legend-dot is-postponed"></span> Postergada</div>
         <div class="legend-item"><span class="legend-dot is-completed"></span> Concretada</div>
         <div class="legend-item"><span class="legend-dot is-missed"></span> No realizada</div>
         <div class="legend-item"><span class="legend-dot is-cancelled"></span> Cancelada</div>

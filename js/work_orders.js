@@ -5,7 +5,7 @@ import { list, update } from "./data_access.js";
 import { createWorkOrder } from "./work_orders_service.js";
 import { escapeHtml, $, toast } from "./utils.js";
 
-const ORDER_STATUSES = ["Confirmada", "En ejecución", "Completada", "Postergada", "Cancelada"];
+const ORDER_STATUSES = ["Confirmada", "En ejecución", "Postergada", "Concretada", "No realizada", "Cancelada"];
 
 let ACCOUNTS = [];
 let SITES = [];
@@ -26,6 +26,16 @@ function parseVisitDate(v){
 
 function employeeLabel(emp){
   return `${emp.lastName || ""}${emp.lastName && emp.firstName ? ", " : ""}${emp.firstName || ""}`.trim() || "—";
+}
+
+function mapOrderStatusToVisitStatus(status){
+  if (status === "Confirmada") return "confirmed";
+  if (status === "En ejecución") return "in_progress";
+  if (status === "Postergada") return "postponed";
+  if (status === "Concretada") return "completed";
+  if (status === "No realizada") return "missed";
+  if (status === "Cancelada") return "cancelled";
+  return "confirmed";
 }
 
 function filteredConfirmedVisits(){
@@ -207,6 +217,14 @@ async function saveOrder(orderId){
       observations,
       active: status !== "Cancelada"
     }, auth.currentUser);
+
+    const order = WORK_ORDERS.find(w=>w.id === orderId);
+    if (order?.visitId){
+      await update("visits", order.visitId, {
+        status: mapOrderStatusToVisitStatus(status)
+      }, auth.currentUser);
+    }
+
     toast("Orden actualizada");
     await loadData();
     render();
@@ -222,6 +240,14 @@ async function cancelOrder(orderId){
       status: "Cancelada",
       active: false
     }, auth.currentUser);
+
+    const order = WORK_ORDERS.find(w=>w.id === orderId);
+    if (order?.visitId){
+      await update("visits", order.visitId, {
+        status: "cancelled"
+      }, auth.currentUser);
+    }
+
     toast("Orden anulada");
     await loadData();
     render();
