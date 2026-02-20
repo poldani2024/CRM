@@ -6,14 +6,28 @@ import { list, create, update } from "./data_access.js"; // ✅ CAMBIO
 import { escapeHtml, formatDateTimeAR, $, toast } from "./utils.js";
 
 const STAGES = [
-  { key:"contacted", label:"Contactado" },
-  { key:"negotiation", label:"Negociación" },
+  { key:"prospect", label:"Prospecto" },
   { key:"offer_sent", label:"Oferta enviada" },
-  { key:"closed", label:"Cerrado" },
+  { key:"negotiation", label:"Negociación" },
+  { key:"account_active", label:"Cuenta activa" },
+  { key:"closed", label:"Cerrado" }
 ];
 
 let PROFILE = null;
 let ACCOUNTS = [];
+
+function normalizeStage(stage){
+  const raw = String(stage || "");
+  if (raw === "contacted") return "prospect";
+  if (raw === "active") return "account_active";
+  if (STAGES.some(s=>s.key === raw)) return raw;
+  return "prospect";
+}
+
+function stageToAccountStatus(stage){
+  return stage === "account_active" ? "active" : "inactive";
+}
+
 
 function openModal(){
   $("modalBackdrop").style.display = "flex";
@@ -26,7 +40,7 @@ function closeModal(){
   $("a_type").value = "bank";
   $("a_visitUnit").value = "1";
   $("a_visitPeriod").value = "week";
-  $("a_stage").value = "contacted";
+  $("a_stage").value = "prospect";
 }
 
 function stageLabel(k){
@@ -66,10 +80,10 @@ function enableDragDrop(){
 
       const acc = ACCOUNTS.find(a=>a.id === draggedId);
       if (!acc) return;
-      if ((acc.stage || "contacted") === newStage) return;
+      if (normalizeStage(acc.stage) === newStage) return;
 
       try{
-        await update("accounts", draggedId, { stage: newStage }, auth.currentUser);
+        await update("accounts", draggedId, { stage: newStage, status: stageToAccountStatus(newStage) }, auth.currentUser);
         toast("Movido ✅");
 
         await loadData();
@@ -104,7 +118,7 @@ function renderBoard(){
   const byStage = {};
   for (const s of STAGES) byStage[s.key] = [];
   for (const a of ACCOUNTS){
-    const st = a.stage || "contacted";
+    const st = normalizeStage(a.stage);
     (byStage[st] ||= []).push(a);
   }
 
@@ -189,15 +203,16 @@ function wireModal(){
     const name = $("a_name").value.trim();
     if (!name) return toast("Falta el nombre");
 
+    const stage = $("a_stage").value;
     const data = {
       name,
       type: $("a_type").value,
       visitFrequencyUnit: Math.max(1, Number($("a_visitUnit").value || 1)),
       visitFrequencyPeriod: $("a_visitPeriod").value,
-      stage: $("a_stage").value,
+      stage,
       phone: $("a_phone").value.trim(),
       notes: $("a_notes").value.trim(),
-      status: "active"
+      status: stageToAccountStatus(stage)
     };
 
     $("btnSave").disabled = true;
