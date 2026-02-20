@@ -1,7 +1,7 @@
 import { loadShell } from "./ui_shell.js";
 import { requireRole } from "./auth.js";
 import { auth } from "./firebase.js";
-import { list, create, update } from "./data_access.js";
+import { list, create, update, remove } from "./data_access.js";
 import { escapeHtml, $, toast } from "./utils.js";
 
 const PERIOD_DAYS = {
@@ -12,11 +12,11 @@ const PERIOD_DAYS = {
 };
 
 const STATUS_OPTIONS = [
-  { value: "confirmed", label: "Confirmada" },
-  { value: "completed", label: "Concretada" },
-  { value: "missed", label: "No realizada" },
-  { value: "cancelled", label: "Cancelada" },
-  { value: "estimated", label: "Solo estimada" }
+  { value: "confirmed", label: "Confirmada", icon: "🟠" },
+  { value: "completed", label: "Concretada", icon: "✅" },
+  { value: "missed", label: "No realizada", icon: "⛔" },
+  { value: "cancelled", label: "Cancelada", icon: "⚫" },
+  { value: "estimated", label: "Solo estimada", icon: "🟡" }
 ];
 
 let ACCOUNTS = [];
@@ -35,7 +35,17 @@ function startOfDay(d){
 }
 
 function dateKey(d){
-  return startOfDay(d).toISOString().slice(0, 10);
+  const n = startOfDay(d);
+  const yyyy = n.getFullYear();
+  const mm = String(n.getMonth() + 1).padStart(2, "0");
+  const dd = String(n.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function parseDateKey(raw){
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(raw || ""))) return null;
+  const [yyyy, mm, dd] = String(raw).split("-").map(Number);
+  return new Date(yyyy, mm - 1, dd);
 }
 
 function fmtDate(d){
@@ -46,6 +56,10 @@ function parseVisitDate(v){
   const source = v.plannedDate || v.scheduledFor || v.date;
   if (!source) return null;
   if (source?.toDate) return startOfDay(source.toDate());
+  if (typeof source === "string"){
+    const fromKey = parseDateKey(source);
+    if (fromKey) return startOfDay(fromKey);
+  }
   const d = new Date(source);
   return Number.isNaN(d.getTime()) ? null : startOfDay(d);
 }
@@ -129,7 +143,7 @@ function hideContextMenu(){
   activeMenuCell = null;
 }
 
-function showContextMenu(x, y, siteId, accountId, dKey, currentStatus){
+function showContextMenu(x, y, siteId, accountId, dKey, currentStatus, existingVisitId){
   const menu = $("visitContextMenu");
   if (!menu) return;
 
@@ -138,8 +152,18 @@ function showContextMenu(x, y, siteId, accountId, dKey, currentStatus){
   menu.innerHTML = `
     <div class="small muted" style="margin-bottom:6px;">${escapeHtml(dKey)}</div>
     ${STATUS_OPTIONS.map(opt=>`
-      <button class="visit-menu-item ${currentStatus===opt.value?"active":""}" data-status="${opt.value}">${escapeHtml(opt.label)}</button>
+      <button class="visit-menu-item ${currentStatus===opt.value?"active":""}" data-status="${opt.value}">
+        <span class="visit-menu-icon" aria-hidden="true">${opt.icon}</span>
+        ${escapeHtml(opt.label)}
+      </button>
     `).join("")}
+    ${existingVisitId ? `
+      <hr class="visit-menu-sep" />
+      <button class="visit-menu-item danger" data-action="delete">
+        <span class="visit-menu-icon" aria-hidden="true">🗑️</span>
+        Borrar estado
+      </button>
+    ` : ""}
   `;
 
   menu.style.display = "block";
@@ -160,6 +184,13 @@ function showContextMenu(x, y, siteId, accountId, dKey, currentStatus){
       await saveVisitStatus(status);
     });
   });
+
+  const deleteBtn = menu.querySelector("[data-action='delete']");
+  if (deleteBtn){
+    deleteBtn.addEventListener("click", async ()=>{
+      await deleteVisitStatus();
+    });
+  }
 }
 
 async function saveVisitStatus(status){
@@ -194,6 +225,31 @@ async function saveVisitStatus(status){
   }
 }
 
+async function deleteVisitStatus(){
+  if (!activeMenuCell) return;
+
+  const { siteId, dKey } = activeMenuCell;
+  const existing = VISITS.find(v=>{
+    const dt = parseVisitDate(v);
+    return dt && v.siteId === siteId && dateKey(dt) === dKey;
+  });
+  if (!existing?.id){
+    hideContextMenu();
+    return;
+  }
+
+  try{
+    await remove("visits", existing.id);
+    hideContextMenu();
+    await loadData();
+    render();
+    toast("Estado eliminado");
+  } catch(err){
+    console.error(err);
+    toast(err?.message || "No se pudo borrar la visita");
+  }
+}
+
 function wireMenuEvents(visitMap){
   document.querySelectorAll("[data-visit-cell]").forEach(cell=>{
     cell.addEventListener("click", (ev)=>{
@@ -202,7 +258,7 @@ function wireMenuEvents(visitMap){
       const accountId = cell.dataset.accountId;
       const dKey = cell.dataset.date;
       const existing = visitMap.get(`${siteId}|${dKey}`);
-      showContextMenu(ev.clientX + 6, ev.clientY + 6, siteId, accountId, dKey, existing?.status || "");
+      showContextMenu(ev.clientX + 6, ev.clientY + 6, siteId, accountId, dKey, existing?.status || "", existing?.id || "");
     });
   });
 
