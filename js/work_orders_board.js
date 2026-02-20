@@ -1,8 +1,9 @@
 import { loadShell } from "./ui_shell.js";
-import { requireRole } from "./auth.js";
-import { auth } from "./firebase.js";
+import { requireRole, TENANT_ID } from "./auth.js";
+import { auth, db } from "./firebase.js";
 import { list, update } from "./data_access.js";
 import { escapeHtml, $, toast } from "./utils.js";
+import { doc, getDoc } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
 
 const COLUMNS = [
   { key: "todo", title: "A Realizar" },
@@ -13,6 +14,8 @@ const COLUMNS = [
 let WORK_ORDERS = [];
 let EMPLOYEES = [];
 let draggedOrderId = null;
+let justDragged = false;
+let COMPANY_NAME = "Mi Empresa";
 let filters = {
   employeeId: "",
   account: "",
@@ -107,6 +110,80 @@ function getDateRangeFromFilters(){
   return dayRange(picked);
 }
 
+
+
+function openOrderModal(orderId){
+  const order = WORK_ORDERS.find(o=>o.id === orderId);
+  if (!order) return;
+
+  const employee = order.employeeName || "Sin empleado";
+  const serviceAddress = [order.siteName || "", order.siteAddress || "", order.siteCity || ""].filter(Boolean).join(" · ") || "—";
+
+  $("woModalTitle").textContent = `Orden de Trabajo ${order.orderNumber || ""}`;
+  $("wo_m_number").textContent = order.orderNumber || "—";
+  $("wo_m_generated").textContent = toDateKey(new Date());
+  $("wo_m_visit").textContent = normalizeOrderDate(order) || "—";
+  $("wo_m_employee").textContent = employee;
+  $("wo_m_company").textContent = order.accountName || "—";
+  $("wo_m_site").textContent = serviceAddress;
+  $("wo_m_status").textContent = order.status || "—";
+  $("wo_m_obs").textContent = order.observations || "—";
+
+  const pdfBtn = $("btnGenerateOrderPdf");
+  pdfBtn.onclick = ()=> generateOrderPdf(order, employee, serviceAddress);
+
+  $("woModalBackdrop").style.display = "flex";
+}
+
+function closeOrderModal(){
+  $("woModalBackdrop").style.display = "none";
+}
+
+function generateOrderPdf(order, employee, serviceAddress){
+  const generated = toDateKey(new Date());
+  const visitDate = normalizeOrderDate(order) || "—";
+  const html = `
+    <html>
+      <head>
+        <title>Orden de Trabajo ${order.orderNumber || ""}</title>
+        <style>
+          @page { size: A4; margin: 8mm; }
+          body { font-family: Arial, sans-serif; margin:0; }
+          .sheet { width: 100%; min-height: 148mm; border: 1px solid #222; padding: 10mm; box-sizing:border-box; }
+          .head { text-align:center; margin-bottom: 8mm; }
+          .company { font-size: 20px; font-weight: 800; }
+          .title { font-size: 18px; font-weight: 700; margin-top: 2mm; }
+          .row { margin: 3mm 0; font-size: 14px; }
+          .label { font-weight: 700; }
+          .obs { margin-top: 8mm; border: 1px solid #333; min-height: 70mm; padding: 4mm; white-space: pre-wrap; }
+        </style>
+      </head>
+      <body>
+        <div class="sheet">
+          <div class="head">
+            <div class="company">${COMPANY_NAME}</div>
+            <div class="title">Orden de Trabajo</div>
+          </div>
+          <div class="row"><span class="label">Número:</span> ${order.orderNumber || "—"}</div>
+          <div class="row"><span class="label">Fecha de generación:</span> ${generated}</div>
+          <div class="row"><span class="label">Empleado asignado:</span> ${employee}</div>
+          <div class="row"><span class="label">Empresa:</span> ${order.accountName || "—"}</div>
+          <div class="row"><span class="label">Domicilio servicio:</span> ${serviceAddress}</div>
+          <div class="row"><span class="label">Fecha de realización:</span> ${visitDate}</div>
+          <div class="row"><span class="label">Estado:</span> ${order.status || "—"}</div>
+          <div class="obs"><span class="label">Observaciones:</span><br>${escapeHtml(order.observations || "")}</div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  const win = window.open("", "_blank");
+  if (!win) return toast("No se pudo abrir ventana para PDF");
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  win.print();
+}
 
 function getFilteredOrders(){
   const range = getDateRangeFromFilters();
@@ -229,7 +306,7 @@ function render(){
           ${COLUMNS.map(col=>`
             <div class="ot-cell ot-drop-zone" data-drop-employee="${escapeHtml(row.id)}" data-drop-column="${col.key}">
               ${cardsFor(row.id, col.key, filteredOrders).map(order=>`
-                <div class="ot-card" draggable="true" data-order-id="${escapeHtml(order.id)}" title="Arrastrar para cambiar estado o empleado">
+                <div class="ot-card" draggable="true" data-order-id="${escapeHtml(order.id)}" data-open-order="${escapeHtml(order.id)}" title="Click para ver detalle · Arrastrar para mover">
                   OT ${escapeHtml(order.orderNumber || "—")} · ${escapeHtml(order.accountName || "—")} · ${escapeHtml(order.siteName || "—")} · ${escapeHtml(order.status || "—")}
                 </div>
               `).join("")}
@@ -239,10 +316,43 @@ function render(){
       </div>
       ${!rows.length ? `<div class="muted" style="margin-top:10px;">No hay órdenes para los filtros seleccionados.</div>` : ""}
     </div>
+
+    <div class="modal-backdrop" id="woModalBackdrop">
+      <div class="modal" style="max-width:760px;">
+        <div class="modal-head">
+          <div class="modal-title" id="woModalTitle">Orden de Trabajo</div>
+          <button class="btn btn-ghost" id="btnCloseWoModal">✕</button>
+        </div>
+        <div class="spacer"></div>
+        <div class="grid2">
+          <div class="field"><label>Número</label><div id="wo_m_number" class="muted">—</div></div>
+          <div class="field"><label>Fecha generación</label><div id="wo_m_generated" class="muted">—</div></div>
+          <div class="field"><label>Fecha realización</label><div id="wo_m_visit" class="muted">—</div></div>
+          <div class="field"><label>Empleado</label><div id="wo_m_employee" class="muted">—</div></div>
+          <div class="field"><label>Empresa</label><div id="wo_m_company" class="muted">—</div></div>
+          <div class="field"><label>Domicilio servicio</label><div id="wo_m_site" class="muted">—</div></div>
+          <div class="field"><label>Estado</label><div id="wo_m_status" class="muted">—</div></div>
+          <div class="field" style="grid-column:1/-1;"><label>Observaciones</label><div id="wo_m_obs" class="muted" style="white-space:pre-wrap; min-height:120px; border:1px solid var(--line); border-radius:8px; padding:8px;">—</div></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn" id="btnCloseWoModal2">Cerrar</button>
+          <button class="btn btn-primary" id="btnGenerateOrderPdf">Generar PDF</button>
+        </div>
+      </div>
+    </div>
   `;
 
   wireFilterEvents();
   wireDnD();
+
+  $("btnCloseWoModal")?.addEventListener("click", closeOrderModal);
+  $("btnCloseWoModal2")?.addEventListener("click", closeOrderModal);
+  c.querySelectorAll("[data-open-order]").forEach(card=>{
+    card.addEventListener("click", ()=>{
+      if (justDragged) return;
+      openOrderModal(card.dataset.openOrder);
+    });
+  });
 }
 
 function wireFilterEvents(){
@@ -280,11 +390,13 @@ function wireDnD(){
   document.querySelectorAll(".ot-card").forEach(card=>{
     card.addEventListener("dragstart", ()=>{
       draggedOrderId = card.dataset.orderId;
+      justDragged = true;
       card.classList.add("dragging");
     });
     card.addEventListener("dragend", ()=>{
       card.classList.remove("dragging");
       draggedOrderId = null;
+      window.setTimeout(()=>{ justDragged = false; }, 60);
     });
   });
 
@@ -347,6 +459,20 @@ async function loadData(){
   });
 }
 
+
+async function loadSettings(){
+  try{
+    const ref = doc(db, "tenants", TENANT_ID, "settings", "main");
+    const snap = await getDoc(ref);
+    if (snap.exists()){
+      const data = snap.data();
+      COMPANY_NAME = data?.companyName || COMPANY_NAME;
+    }
+  } catch(err){
+    console.warn("No se pudo cargar settings/main", err);
+  }
+}
+
 async function init(){
   await requireRole(["admin", "operator", "viewer"]);
   await loadShell({
@@ -359,6 +485,7 @@ async function init(){
   });
 
   filters.date = toDateKey(new Date());
+  await loadSettings();
   await loadData();
   render();
 }
