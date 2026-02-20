@@ -23,7 +23,9 @@ function closeModal(){
   $("a_name").value = "";
   $("a_phone").value = "";
   $("a_notes").value = "";
-  $("a_type").value = "business";
+  $("a_type").value = "bank";
+  $("a_visitUnit").value = "1";
+  $("a_visitPeriod").value = "week";
   $("a_stage").value = "contacted";
 }
 
@@ -118,7 +120,11 @@ function renderBoard(){
       return `
         <div class="card" draggable="true" data-id="${a.id}">
           <div class="card-title">${escapeHtml(a.name || "—")}</div>
-          <div class="card-sub muted small">${escapeHtml(typeLabel(a.type))} · ${escapeHtml(a.phone || "")}</div>
+          <div class="card-sub muted small">
+            ${escapeHtml(typeLabel(a.type))}
+            ${a.phone ? `· ${escapeHtml(a.phone)}` : ""}
+            ${frequencyLabel(a) ? `· ${escapeHtml(frequencyLabel(a))}` : ""}
+          </div>
           <div class="card-meta">
             ${upd ? `<span>Actualizado: ${escapeHtml(formatDateTimeAR(upd))}</span>` : `<span class="muted">—</span>`}
           </div>
@@ -140,10 +146,31 @@ function renderBoard(){
 }
 
 function typeLabel(t){
+  if (t==="bank") return "Banco";
+  if (t==="building") return "Edificio";
+  if (t==="warehouse") return "Depósito";
+  if (t==="store") return "Local";
+  if (t==="plant") return "Planta";
   if (t==="business") return "Empresa";
   if (t==="commercial") return "Comercial";
   if (t==="residential") return "Residencial";
   return t || "—";
+}
+
+function periodLabel(period, unit){
+  const many = Number(unit) > 1;
+  if (period === "day") return many ? "días" : "día";
+  if (period === "week") return many ? "semanas" : "semana";
+  if (period === "month") return many ? "meses" : "mes";
+  if (period === "year") return many ? "años" : "año";
+  return period || "";
+}
+
+function frequencyLabel(account){
+  const unit = Number(account.visitFrequencyUnit || 0);
+  const period = account.visitFrequencyPeriod;
+  if (!unit || !period) return "";
+  return `${unit} por ${periodLabel(period, unit)}`;
 }
 
 async function loadData(){
@@ -165,6 +192,8 @@ function wireModal(){
     const data = {
       name,
       type: $("a_type").value,
+      visitFrequencyUnit: Math.max(1, Number($("a_visitUnit").value || 1)),
+      visitFrequencyPeriod: $("a_visitPeriod").value,
       stage: $("a_stage").value,
       phone: $("a_phone").value.trim(),
       notes: $("a_notes").value.trim(),

@@ -23,6 +23,8 @@ function openCreateModal(){
   $("s_address").value = "";
   $("s_city").value = "";
   $("s_notes").value = "";
+  $("s_requiresSheet").checked = false;
+  $("s_requiresCertificate").checked = false;
 
   if (accountIdPrefill) $("s_accountId").value = accountIdPrefill;
   $("modalBackdrop").style.display = "flex";
@@ -41,6 +43,8 @@ function openEditModal(siteId){
   $("s_address").value = site.address || "";
   $("s_city").value = site.city || "";
   $("s_notes").value = site.notes || "";
+  $("s_requiresSheet").checked = !!site.requiresSheet;
+  $("s_requiresCertificate").checked = !!site.requiresCertificate;
 
   $("modalBackdrop").style.display = "flex";
 }
@@ -78,6 +82,8 @@ function render(){
                   ${site.city ? `· ${escapeHtml(site.city)}` : ""}
                   ${site.address ? `· ${escapeHtml(site.address)}` : ""}
                   ${inactive ? `· Inactivo` : ""}
+                  ${site.requiresSheet ? "· Planilla" : ""}
+                  ${site.requiresCertificate ? "· Certificado" : ""}
                   ${upd ? `· Actualizado: ${escapeHtml(formatDateTimeAR(upd))}` : ""}
                 </div>
               </div>
@@ -124,6 +130,21 @@ function render(){
             <input id="s_city" placeholder="Ej: Rosario" />
           </div>
 
+
+          <div class="field" style="grid-column:1/-1;">
+            <label>Documentación requerida</label>
+            <div class="row" style="gap:16px; flex-wrap:wrap;">
+              <label class="row" style="gap:8px; align-items:center;">
+                <input id="s_requiresSheet" type="checkbox" />
+                <span>Planilla</span>
+              </label>
+              <label class="row" style="gap:8px; align-items:center;">
+                <input id="s_requiresCertificate" type="checkbox" />
+                <span>Certificado</span>
+              </label>
+            </div>
+          </div>
+
           <div class="field" style="grid-column:1/-1;">
             <label>Comentarios</label>
             <textarea id="s_notes"></textarea>
@@ -165,6 +186,8 @@ async function saveSite(){
     address: $("s_address").value.trim(),
     city: $("s_city").value.trim(),
     notes: $("s_notes").value.trim(),
+    requiresSheet: $("s_requiresSheet").checked,
+    requiresCertificate: $("s_requiresCertificate").checked,
     status: "active"
   };
 

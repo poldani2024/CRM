@@ -29,7 +29,7 @@ function render(){
     <div class="panel" style="padding:14px;">
       <div class="row" style="justify-content:space-between; flex-wrap:wrap; gap:10px;">
         <div class="muted">
-          ${escapeHtml(typeLabel(ACCOUNT.type))} · ${escapeHtml(stageLabel(ACCOUNT.stage))}
+          ${escapeHtml(typeLabel(ACCOUNT.type))}${frequencyLabel(ACCOUNT) ? ` · ${escapeHtml(frequencyLabel(ACCOUNT))}` : ""} · ${escapeHtml(stageLabel(ACCOUNT.stage))}
           ${ACCOUNT.phone ? `· ${escapeHtml(ACCOUNT.phone)}` : ""}
           ${upd ? `· Actualizado: ${escapeHtml(formatDateTimeAR(upd))}` : ""}
         </div>
@@ -70,11 +70,29 @@ function render(){
           </div>
 
           <div class="field">
-            <label>Tipo</label>
+            <label>Tipo de cliente</label>
             <select id="e_type">
-              <option value="business">Empresa</option>
-              <option value="commercial">Comercial</option>
-              <option value="residential">Residencial</option>
+              <option value="bank">Banco</option>
+              <option value="building">Edificio</option>
+              <option value="warehouse">Depósito</option>
+              <option value="store">Local</option>
+              <option value="plant">Planta</option>
+            </select>
+          </div>
+
+
+          <div class="field">
+            <label>Frecuencia de visita (unidad)</label>
+            <input id="e_visitUnit" type="number" min="1" step="1" />
+          </div>
+
+          <div class="field">
+            <label>Frecuencia de visita (período)</label>
+            <select id="e_visitPeriod">
+              <option value="day">Día</option>
+              <option value="week">Semana</option>
+              <option value="month">Mes</option>
+              <option value="year">Año</option>
             </select>
           </div>
 
@@ -141,8 +159,12 @@ function renderTab(){
             <div style="font-weight:700;">${escapeHtml(ACCOUNT.phone||"—")}</div>
           </div>
           <div>
-            <div class="muted small">Tipo</div>
+            <div class="muted small">Tipo de cliente</div>
             <div style="font-weight:700;">${escapeHtml(typeLabel(ACCOUNT.type))}</div>
+          </div>
+          <div>
+            <div class="muted small">Frecuencia de visita</div>
+            <div style="font-weight:700;">${escapeHtml(frequencyLabel(ACCOUNT) || "—")}</div>
           </div>
           <div>
             <div class="muted small">Estado</div>
@@ -203,11 +225,33 @@ function renderTab(){
 }
 
 function typeLabel(t){
+  if (t==="bank") return "Banco";
+  if (t==="building") return "Edificio";
+  if (t==="warehouse") return "Depósito";
+  if (t==="store") return "Local";
+  if (t==="plant") return "Planta";
   if (t==="business") return "Empresa";
   if (t==="commercial") return "Comercial";
   if (t==="residential") return "Residencial";
   return t || "—";
 }
+
+function periodLabel(period, unit){
+  const many = Number(unit) > 1;
+  if (period === "day") return many ? "días" : "día";
+  if (period === "week") return many ? "semanas" : "semana";
+  if (period === "month") return many ? "meses" : "mes";
+  if (period === "year") return many ? "años" : "año";
+  return period || "";
+}
+
+function frequencyLabel(account){
+  const unit = Number(account?.visitFrequencyUnit || 0);
+  const period = account?.visitFrequencyPeriod;
+  if (!unit || !period) return "";
+  return `${unit} por ${periodLabel(period, unit)}`;
+}
+
 function stageLabel(s){
   if (s==="contacted") return "Contactado";
   if (s==="negotiation") return "Negociación";
@@ -219,7 +263,9 @@ function stageLabel(s){
 function openEdit(){
   $("editBackdrop").style.display = "flex";
   $("e_name").value = ACCOUNT.name || "";
-  $("e_type").value = ACCOUNT.type || "business";
+  $("e_type").value = ACCOUNT.type || "bank";
+  $("e_visitUnit").value = String(Math.max(1, Number(ACCOUNT.visitFrequencyUnit || 1)));
+  $("e_visitPeriod").value = ACCOUNT.visitFrequencyPeriod || "week";
   $("e_stage").value = ACCOUNT.stage || "contacted";
   $("e_phone").value = ACCOUNT.phone || "";
   $("e_notes").value = ACCOUNT.notes || "";
@@ -231,6 +277,8 @@ async function saveEdit(){
   const data = {
     name: $("e_name").value.trim(),
     type: $("e_type").value,
+    visitFrequencyUnit: Math.max(1, Number($("e_visitUnit").value || 1)),
+    visitFrequencyPeriod: $("e_visitPeriod").value,
     stage: $("e_stage").value,
     phone: $("e_phone").value.trim(),
     notes: $("e_notes").value.trim()
