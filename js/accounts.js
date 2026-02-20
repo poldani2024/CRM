@@ -66,24 +66,28 @@ function enableDragDrop(){
     });
   });
 
-  document.querySelectorAll(".col").forEach(col=>{
-    col.addEventListener("dragover", ev=>{
+  document.querySelectorAll("[data-drop-stage]").forEach(col=>{
+    const onDragOver = ev=>{
       ev.preventDefault();
       col.classList.add("drag-over");
-    });
-
-    col.addEventListener("dragleave", ()=>{
+      col.querySelector(".cards")?.classList.add("drag-over");
+    };
+    const onDragLeave = ()=>{
       col.classList.remove("drag-over");
-    });
+      col.querySelector(".cards")?.classList.remove("drag-over");
+    };
+
+    col.addEventListener("dragover", onDragOver);
+    col.addEventListener("dragleave", onDragLeave);
+    col.querySelector(".cards")?.addEventListener("dragover", onDragOver);
+    col.querySelector(".cards")?.addEventListener("dragleave", onDragLeave);
 
     col.addEventListener("drop", async ev=>{
       ev.preventDefault();
-      col.classList.remove("drag-over");
+      onDragLeave();
       if (!draggedId) return;
 
-      const cardsHost = col.querySelector(".cards");
-      const newStage = cardsHost.id.replace("col_", "");
-
+      const newStage = col.dataset.dropStage;
       const acc = ACCOUNTS.find(a=>a.id === draggedId);
       if (!acc) return;
       if (normalizeStage(acc.stage) === newStage) return;
@@ -111,7 +115,7 @@ function renderBoard(){
     <div class="section-title">Cuentas</div>
     <div class="board">
       ${STAGES.map(s=>`
-        <div class="col">
+        <div class="col" data-drop-stage="${s.key}">
           <div class="col-head">
             <div class="col-title">${escapeHtml(s.label)}</div>
             <div class="badge" id="count_${s.key}">0</div>
