@@ -207,10 +207,15 @@ async function loadData(){
     max: 1000
   });
 
-  VISITS = await list("visits", {
-    order: null,
-    max: 4000
-  });
+  try{
+    VISITS = await list("visits", {
+      order: null,
+      max: 4000
+    });
+  } catch(err){
+    console.warn("No se pudo leer 'visits' (permisos o colección inexistente)", err);
+    VISITS = [];
+  }
 }
 
 async function init(){
