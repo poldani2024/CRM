@@ -7,12 +7,19 @@ import { escapeHtml, $, toast } from "./utils.js";
 
 const ORDER_STATUSES = ["Confirmada", "En ejecución", "Postergada", "Concretada", "No realizada", "Cancelada"];
 
+const KANBAN_COLUMNS = [
+  { key: "todo", title: "A Realizar" },
+  { key: "doing", title: "Realizando" },
+  { key: "done", title: "Realizado" }
+];
+
 let ACCOUNTS = [];
 let SITES = [];
 let EMPLOYEES = [];
 let VISITS = [];
 let WORK_ORDERS = [];
 let selectedVisitId = "";
+let kanbanViewMode = "employee";
 
 function parseVisitDate(v){
   const source = v.plannedDate || v.scheduledFor || v.date;
@@ -38,6 +45,13 @@ function mapOrderStatusToVisitStatus(status){
   return "confirmed";
 }
 
+function kanbanColumnForStatus(status){
+  if (["Confirmada", "No realizada"].includes(status)) return "todo";
+  if (status === "En ejecución") return "doing";
+  if (["Concretada", "Cancelada"].includes(status)) return "done";
+  return null;
+}
+
 function filteredConfirmedVisits(){
   const accountId = $("f_account")?.value || "";
   const siteId = $("f_site")?.value || "";
@@ -57,6 +71,88 @@ function filteredConfirmedVisits(){
     .filter(v=> !siteId || v.siteId === siteId)
     .filter(v=> !date || parseVisitDate(v) === date)
     .sort((a,b)=> parseVisitDate(a).localeCompare(parseVisitDate(b)));
+}
+
+function buildKanbanBuckets(){
+  const buckets = { todo: [], doing: [], done: [] };
+
+  if (kanbanViewMode === "employee"){
+    for (const order of WORK_ORDERS){
+      const col = kanbanColumnForStatus(order.status);
+      if (!col) continue;
+      const key = order.employeeId || order.employeeName || `no_emp_${order.id}`;
+      const title = order.employeeName || "Sin empleado";
+      let card = buckets[col].find(c=>c.key === key);
+      if (!card){
+        card = { key, title, subtitle: "", lines: [] };
+        buckets[col].push(card);
+      }
+      card.lines.push(`OT ${order.orderNumber || "—"} · ${order.accountName || "—"} · ${order.siteName || "—"} · ${order.status || "—"}`);
+    }
+  } else {
+    for (const order of WORK_ORDERS){
+      const col = kanbanColumnForStatus(order.status);
+      if (!col) continue;
+      const key = `${order.accountId || order.accountName || "acc"}|${order.siteId || order.siteName || "site"}|${order.employeeId || order.employeeName || "no_emp"}`;
+      const title = `${order.accountName || "Sin empresa"} · ${order.siteName || "Sin predio"}`;
+      const subtitle = `Empleado: ${order.employeeName || "Sin empleado"}`;
+      let card = buckets[col].find(c=>c.key === key);
+      if (!card){
+        card = { key, title, subtitle, lines: [] };
+        buckets[col].push(card);
+      }
+      card.lines.push(`OT ${order.orderNumber || "—"} · ${order.status || "—"} · ${order.visitDate || "—"}`);
+    }
+  }
+
+  for (const col of Object.keys(buckets)){
+    buckets[col].sort((a,b)=> a.title.localeCompare(b.title));
+  }
+
+  return buckets;
+}
+
+function renderKanban(){
+  const buckets = buildKanbanBuckets();
+  return `
+    <div class="panel" style="padding:14px;">
+      <div class="row" style="justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+        <div>
+          <div style="font-weight:700;">Tablero Kanban de órdenes</div>
+          <div class="muted small">Vista por empleado o por empresa/predio (separando por empleado cuando corresponda).</div>
+        </div>
+        <div class="field" style="min-width:260px;">
+          <label>Ver por</label>
+          <select id="kanban_view_mode">
+            <option value="employee" ${kanbanViewMode === "employee" ? "selected" : ""}>Empleado</option>
+            <option value="site" ${kanbanViewMode === "site" ? "selected" : ""}>Empresa y Predio</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="spacer"></div>
+
+      <div class="board" style="grid-template-columns:repeat(3, minmax(260px, 1fr));">
+        ${KANBAN_COLUMNS.map(col=>`
+          <section class="col">
+            <div class="col-head">
+              <div class="col-title">${col.title}</div>
+              <div class="badge">${buckets[col.key].length}</div>
+            </div>
+            <div class="cards">
+              ${buckets[col.key].length ? buckets[col.key].map(card=>`
+                <article class="card">
+                  <div class="card-title">${escapeHtml(card.title)}</div>
+                  ${card.subtitle ? `<div class="card-sub muted small">${escapeHtml(card.subtitle)}</div>` : ""}
+                  <div class="card-sub muted small">${card.lines.map(line=>escapeHtml(line)).join("<br>")}</div>
+                </article>
+              `).join("") : `<div class="muted small">Sin órdenes en esta columna.</div>`}
+            </div>
+          </section>
+        `).join("")}
+      </div>
+    </div>
+  `;
 }
 
 function render(){
@@ -123,6 +219,10 @@ function render(){
 
     <div class="spacer"></div>
 
+    ${renderKanban()}
+
+    <div class="spacer"></div>
+
     <div class="panel" style="padding:14px;">
       <div style="font-weight:700;">Órdenes registradas</div>
       <div class="spacer"></div>
@@ -153,6 +253,11 @@ function render(){
 
   $("btnApplyFilters")?.addEventListener("click", ()=>{
     selectedVisitId = "";
+    render();
+  });
+
+  $("kanban_view_mode")?.addEventListener("change", ()=>{
+    kanbanViewMode = $("kanban_view_mode").value || "employee";
     render();
   });
 
