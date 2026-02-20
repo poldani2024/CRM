@@ -3,6 +3,7 @@ import { requireRole } from "./auth.js";
 import { auth } from "./firebase.js";
 import { list, create, update, remove } from "./data_access.js";
 import { escapeHtml, $, toast } from "./utils.js";
+import { createWorkOrder } from "./work_orders_service.js";
 
 const PERIOD_DAYS = {
   day: 1,
@@ -22,11 +23,13 @@ const STATUS_OPTIONS = [
 let ACCOUNTS = [];
 let SITES = [];
 let VISITS = [];
+let EMPLOYEES = [];
 let rangeDays = 30;
 let startDate = startOfDay(new Date());
 let selectedAccountId = "";
 let selectedSiteId = "";
 let activeMenuCell = null;
+let selectedVisitForOrder = null;
 
 function startOfDay(d){
   const n = new Date(d);
@@ -157,6 +160,13 @@ function showContextMenu(x, y, siteId, accountId, dKey, currentStatus, existingV
         ${escapeHtml(opt.label)}
       </button>
     `).join("")}
+    ${(existingVisitId && currentStatus === "confirmed") ? `
+      <hr class="visit-menu-sep" />
+      <button class="visit-menu-item" data-action="assign-order">
+        <span class="visit-menu-icon" aria-hidden="true">🧾</span>
+        Asignar empleado / generar OT
+      </button>
+    ` : ""}
     ${existingVisitId ? `
       <hr class="visit-menu-sep" />
       <button class="visit-menu-item danger" data-action="delete">
@@ -184,6 +194,13 @@ function showContextMenu(x, y, siteId, accountId, dKey, currentStatus, existingV
       await saveVisitStatus(status);
     });
   });
+
+  const assignBtn = menu.querySelector("[data-action='assign-order']");
+  if (assignBtn){
+    assignBtn.addEventListener("click", ()=>{
+      openAssignOrderModal(existingVisitId);
+    });
+  }
 
   const deleteBtn = menu.querySelector("[data-action='delete']");
   if (deleteBtn){
@@ -247,6 +264,61 @@ async function deleteVisitStatus(){
   } catch(err){
     console.error(err);
     toast(err?.message || "No se pudo borrar la visita");
+  }
+}
+
+function employeeLabel(emp){
+  return `${emp.lastName || ""}${emp.lastName && emp.firstName ? ", " : ""}${emp.firstName || ""}`.trim() || "—";
+}
+
+function openAssignOrderModal(visitId){
+  const visit = VISITS.find(v=>v.id === visitId);
+  if (!visit) return toast("No se encontró la visita confirmada");
+  if (!EMPLOYEES.length) return toast("No hay empleados activos para asignar");
+
+  selectedVisitForOrder = visit;
+  hideContextMenu();
+  $("order_visitDate").textContent = visit.plannedDate || visit.scheduledFor || visit.date || "—";
+  const account = ACCOUNTS.find(a=>a.id === visit.accountId);
+  const site = SITES.find(s=>s.id === visit.siteId);
+  $("order_visitAccount").textContent = account?.name || "—";
+  $("order_visitSite").textContent = site?.name || "—";
+  $("order_employee").innerHTML = `<option value="">Seleccionar</option>${EMPLOYEES.map(emp=>`<option value="${escapeHtml(emp.id)}">${escapeHtml(employeeLabel(emp))}</option>`).join("")}`;
+  $("order_observations").value = "";
+  $("orderModalBackdrop").style.display = "flex";
+}
+
+function closeAssignOrderModal(){
+  $("orderModalBackdrop").style.display = "none";
+  selectedVisitForOrder = null;
+}
+
+async function createOrderFromVisit(){
+  if (!selectedVisitForOrder) return;
+  const employeeId = $("order_employee").value;
+  if (!employeeId) return toast("Seleccioná un empleado");
+
+  const employee = EMPLOYEES.find(e=>e.id === employeeId);
+  const account = ACCOUNTS.find(a=>a.id === selectedVisitForOrder.accountId);
+  const site = SITES.find(s=>s.id === selectedVisitForOrder.siteId);
+
+  try{
+    const created = await createWorkOrder({
+      visit: selectedVisitForOrder,
+      visitId: selectedVisitForOrder.id,
+      account,
+      site,
+      employee,
+      observations: $("order_observations").value,
+      generatedBy: auth.currentUser
+    });
+    closeAssignOrderModal();
+    await loadData();
+    render();
+    toast(`Orden generada: ${created.orderNumber}`);
+  } catch(err){
+    console.error(err);
+    toast(err?.message || "No se pudo generar la orden");
   }
 }
 
@@ -379,6 +451,25 @@ function render(){
     </div>
 
     <div id="visitContextMenu" class="visit-context-menu" style="display:none;"></div>
+
+    <div class="modal-backdrop" id="orderModalBackdrop">
+      <div class="modal" style="max-width:560px;">
+        <div class="modal-head">
+          <div class="modal-title">Generar orden de trabajo</div>
+          <button class="btn btn-ghost" id="btnCloseOrderModal">✕</button>
+        </div>
+        <div class="spacer"></div>
+        <div class="field"><label>Fecha visita</label><div id="order_visitDate" class="muted">—</div></div>
+        <div class="field"><label>Empresa</label><div id="order_visitAccount" class="muted">—</div></div>
+        <div class="field"><label>Predio</label><div id="order_visitSite" class="muted">—</div></div>
+        <div class="field"><label>Empleado asignado</label><select id="order_employee"></select></div>
+        <div class="field"><label>Observaciones</label><textarea id="order_observations"></textarea></div>
+        <div class="modal-actions">
+          <button class="btn" id="btnCancelOrderModal">Cancelar</button>
+          <button class="btn btn-primary" id="btnCreateOrder">Generar OT</button>
+        </div>
+      </div>
+    </div>
   `;
 
   $("v_accountFilter").addEventListener("change", ()=>{
@@ -404,6 +495,10 @@ function render(){
     render();
   });
 
+  $("btnCloseOrderModal")?.addEventListener("click", closeAssignOrderModal);
+  $("btnCancelOrderModal")?.addEventListener("click", closeAssignOrderModal);
+  $("btnCreateOrder")?.addEventListener("click", createOrderFromVisit);
+
   wireMenuEvents(visitMap);
 }
 
@@ -428,6 +523,17 @@ async function loadData(){
   } catch(err){
     console.warn("No se pudo leer 'visits' (permisos o colección inexistente)", err);
     VISITS = [];
+  }
+
+  try{
+    EMPLOYEES = await list("employees", {
+      filters: [{ field:"status", op:"==", value:"active" }],
+      order: { field:"lastName", dir:"asc" },
+      max: 1000
+    });
+  } catch(err){
+    console.warn("No se pudo leer 'employees'", err);
+    EMPLOYEES = [];
   }
 }
 
