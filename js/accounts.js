@@ -1,19 +1,32 @@
-// ✅ CAMBIO 1: se agrega "update" acá (y se elimina el import duplicado más abajo)
 import { loadShell } from "./ui_shell.js";
 import { requireRole } from "./auth.js";
 import { auth } from "./firebase.js";
-import { list, create, update } from "./data_access.js"; // ✅ CAMBIO
+import { list, create, update } from "./data_access.js";
 import { escapeHtml, formatDateTimeAR, $, toast } from "./utils.js";
 
 const STAGES = [
-  { key:"contacted", label:"Contactado" },
-  { key:"negotiation", label:"Negociación" },
+  { key:"prospect", label:"Prospecto" },
   { key:"offer_sent", label:"Oferta enviada" },
-  { key:"closed", label:"Cerrado" },
+  { key:"negotiation", label:"Negociación" },
+  { key:"account_active", label:"Cuenta activa" },
+  { key:"closed", label:"Cerrado" }
 ];
 
 let PROFILE = null;
 let ACCOUNTS = [];
+
+function normalizeStage(stage){
+  const raw = String(stage || "");
+  if (raw === "contacted") return "prospect";
+  if (raw === "active") return "account_active";
+  if (STAGES.some(s=>s.key === raw)) return raw;
+  return "prospect";
+}
+
+function stageToAccountStatus(stage){
+  return stage === "account_active" ? "active" : "inactive";
+}
+
 
 function openModal(){
   $("modalBackdrop").style.display = "flex";
@@ -26,55 +39,68 @@ function closeModal(){
   $("a_type").value = "bank";
   $("a_visitUnit").value = "1";
   $("a_visitPeriod").value = "week";
-  $("a_stage").value = "contacted";
+  $("a_stage").value = "prospect";
 }
 
 function stageLabel(k){
   return STAGES.find(s=>s.key===k)?.label || k;
 }
 
-let draggedId = null; // ✅ CAMBIO: definido antes para usar en renderBoard -> enableDragDrop
+let draggedId = null;
+let justDragged = false;
 
 function enableDragDrop(){
-  // Cards: drag start/end
   document.querySelectorAll(".card").forEach(card=>{
-    // ✅ CAMBIO: forzar draggable por si el navegador/DOM lo pierde
-    card.setAttribute("draggable","true");
+    card.setAttribute("draggable", "true");
 
     card.addEventListener("dragstart", ()=>{
       draggedId = card.dataset.id;
+      justDragged = true;
       card.classList.add("dragging");
     });
 
     card.addEventListener("dragend", ()=>{
       card.classList.remove("dragging");
       draggedId = null;
+      window.setTimeout(()=>{ justDragged = false; }, 60);
     });
   });
 
-  // Columns: allow drop
-  document.querySelectorAll(".col").forEach(col=>{
-    col.addEventListener("dragover", (e)=> e.preventDefault());
+  document.querySelectorAll("[data-drop-stage]").forEach(col=>{
+    const onDragOver = ev=>{
+      ev.preventDefault();
+      col.classList.add("drag-over");
+      col.querySelector(".cards")?.classList.add("drag-over");
+    };
+    const onDragLeave = ()=>{
+      col.classList.remove("drag-over");
+      col.querySelector(".cards")?.classList.remove("drag-over");
+    };
 
-    col.addEventListener("drop", async (e)=>{
-      e.preventDefault();
+    col.addEventListener("dragover", onDragOver);
+    col.addEventListener("dragleave", onDragLeave);
+    col.querySelector(".cards")?.addEventListener("dragover", onDragOver);
+    col.querySelector(".cards")?.addEventListener("dragleave", onDragLeave);
+
+    col.addEventListener("drop", async ev=>{
+      ev.preventDefault();
+      onDragLeave();
       if (!draggedId) return;
 
-      // detectar stage destino por el id="col_{stage}"
-      const cardsHost = col.querySelector(".cards");
-      const newStage = cardsHost.id.replace("col_","");
-
+      const newStage = col.dataset.dropStage;
       const acc = ACCOUNTS.find(a=>a.id === draggedId);
       if (!acc) return;
-      if ((acc.stage || "contacted") === newStage) return;
+      if (normalizeStage(acc.stage) === newStage) return;
 
       try{
-        await update("accounts", draggedId, { stage: newStage }, auth.currentUser);
+        await update("accounts", draggedId, {
+          stage: newStage,
+          status: stageToAccountStatus(newStage)
+        }, auth.currentUser);
         toast("Movido ✅");
 
         await loadData();
         renderBoard();
-
       } catch(err){
         console.error(err);
         toast("Error moviendo");
@@ -86,10 +112,16 @@ function enableDragDrop(){
 function renderBoard(){
   const content = document.getElementById("pageContent");
   content.innerHTML = `
-    <div class="section-title">Cuentas</div>
+    <div class="row" style="justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+      <div class="section-title" style="margin:0;">Cuentas</div>
+      <div class="row" style="gap:8px;">
+        <input id="accountsImportFile" type="file" accept=".csv,text/csv" style="display:none;" />
+        <button class="btn" id="btnImportAccounts">Importar CSV</button>
+      </div>
+    </div>
     <div class="board">
       ${STAGES.map(s=>`
-        <div class="col">
+        <div class="col" data-drop-stage="${s.key}">
           <div class="col-head">
             <div class="col-title">${escapeHtml(s.label)}</div>
             <div class="badge" id="count_${s.key}">0</div>
@@ -100,11 +132,25 @@ function renderBoard(){
     </div>
   `;
 
+  const fileInput = document.getElementById("accountsImportFile");
+  document.getElementById("btnImportAccounts").addEventListener("click", ()=> fileInput.click());
+  fileInput.addEventListener("change", async ()=>{
+    const file = fileInput.files?.[0];
+    fileInput.value = "";
+    if (!file) return;
+    try{
+      await importAccountsFromCsv(file);
+    } catch(err){
+      console.error(err);
+      toast(err?.message || "Error importando CSV");
+    }
+  });
+
   // distribuir cards
   const byStage = {};
   for (const s of STAGES) byStage[s.key] = [];
   for (const a of ACCOUNTS){
-    const st = a.stage || "contacted";
+    const st = normalizeStage(a.stage);
     (byStage[st] ||= []).push(a);
   }
 
@@ -114,8 +160,7 @@ function renderBoard(){
 
     const host = document.getElementById(`col_${s.key}`);
 
-    // ✅ CAMBIO 2: reemplaza el "..." por el render real de cards + draggable + data-id
-    host.innerHTML = arr.map(a=>{
+        host.innerHTML = arr.map(a=>{
       const upd = a.updatedAt?.toDate ? a.updatedAt.toDate() : null;
       return `
         <div class="card" draggable="true" data-id="${a.id}">
@@ -132,17 +177,16 @@ function renderBoard(){
       `;
     }).join("");
 
-    // 👇 (ya estaba, sin tocar lógica)
     host.querySelectorAll(".card").forEach(card=>{
       card.addEventListener("click", ()=>{
+        if (justDragged) return;
         const id = card.dataset.id;
         window.location.href = `../pages/account_detail.html?id=${encodeURIComponent(id)}`;
       });
     });
   }
 
-  // ✅ CAMBIO 3: se llama acá (después de renderizar) y NO al final del archivo
-  enableDragDrop();
+    enableDragDrop();
 }
 
 function typeLabel(t){
@@ -173,6 +217,188 @@ function frequencyLabel(account){
   return `${unit} por ${periodLabel(period, unit)}`;
 }
 
+
+function normalizeType(raw){
+  const v = String(raw || "").trim().toLowerCase();
+  if (!v) return "business";
+  const map = {
+    banco: "bank",
+    bank: "bank",
+    edificio: "building",
+    building: "building",
+    deposito: "warehouse",
+    depósito: "warehouse",
+    warehouse: "warehouse",
+    local: "store",
+    tienda: "store",
+    store: "store",
+    planta: "plant",
+    plant: "plant",
+    empresa: "business",
+    business: "business",
+    comercial: "commercial",
+    commercial: "commercial",
+    residencial: "residential",
+    residential: "residential"
+  };
+  return map[v] || "business";
+}
+
+function parseCsv(text){
+  const rows = [];
+  let row = [];
+  let current = "";
+  let i = 0;
+  let inQuotes = false;
+
+  while (i < text.length){
+    const ch = text[i];
+
+    if (inQuotes){
+      if (ch === '"'){
+        if (text[i + 1] === '"'){
+          current += '"';
+          i += 2;
+          continue;
+        }
+        inQuotes = false;
+        i += 1;
+        continue;
+      }
+      current += ch;
+      i += 1;
+      continue;
+    }
+
+    if (ch === '"'){
+      inQuotes = true;
+      i += 1;
+      continue;
+    }
+    if (ch === '\n'){
+      row.push(current);
+      rows.push(row);
+      row = [];
+      current = "";
+      i += 1;
+      continue;
+    }
+    if (ch === '\r'){
+      i += 1;
+      continue;
+    }
+
+    current += ch;
+    i += 1;
+  }
+
+  if (current.length || row.length){
+    row.push(current);
+    rows.push(row);
+  }
+
+  if (!rows.length) return [];
+
+  const delimiter = (rows[0].join('').match(/;/g) || []).length > (rows[0].join('').match(/,/g) || []).length ? ';' : ',';
+  const splitRows = rows.map(r=> r.length === 1 ? r[0].split(delimiter) : r);
+  const headers = splitRows[0].map(h => String(h || '').trim());
+  return splitRows.slice(1)
+    .filter(r => r.some(c => String(c || '').trim()))
+    .map(r => {
+      const obj = {};
+      headers.forEach((h, idx)=>{ obj[h] = String(r[idx] || '').trim(); });
+      return obj;
+    });
+}
+
+function normalizeStageImport(raw){
+  const v = String(raw || '').trim().toLowerCase();
+  if (!v) return 'prospect';
+  const map = {
+    prospecto: 'prospect',
+    prospect: 'prospect',
+    'oferta enviada': 'offer_sent',
+    oferta_enviada: 'offer_sent',
+    offer_sent: 'offer_sent',
+    negociacion: 'negotiation',
+    negociación: 'negotiation',
+    negotiation: 'negotiation',
+    'cuenta activa': 'account_active',
+    account_active: 'account_active',
+    activo: 'account_active',
+    active: 'account_active',
+    cerrado: 'closed',
+    closed: 'closed'
+  };
+  return map[v] || normalizeStage(v);
+}
+
+async function importAccountsFromCsv(file){
+  const text = await file.text();
+  const rows = parseCsv(text);
+  if (!rows.length) return toast('CSV vacío');
+
+  const required = ['account_name'];
+  const missing = required.filter(k => !(k in rows[0]));
+  if (missing.length) return toast(`Faltan columnas: ${missing.join(', ')}`);
+
+  const existingAccounts = await list('accounts', { order:{ field:'name', dir:'asc' }, max:1000 });
+  const existingSites = await list('sites', { order:null, max:2000 });
+
+  const accountByName = new Map(existingAccounts.map(a => [String(a.name || '').trim().toLowerCase(), a]));
+  const siteKeySet = new Set(existingSites.map(s => `${s.accountId || ''}::${String(s.name || '').trim().toLowerCase()}::${String(s.address || '').trim().toLowerCase()}`));
+
+  let createdAccounts = 0;
+  let createdSites = 0;
+
+  for (const row of rows){
+    const accountName = String(row.account_name || '').trim();
+    if (!accountName) continue;
+
+    let account = accountByName.get(accountName.toLowerCase());
+    if (!account){
+      const stage = normalizeStageImport(row.stage);
+      const freq = Math.max(1, Number(row.visit_frequency_per_month || 1));
+      const payload = {
+        name: accountName,
+        type: normalizeType(row.account_type),
+        phone: String(row.phone || '').trim(),
+        notes: String(row.notes || '').trim(),
+        stage,
+        status: stageToAccountStatus(stage),
+        visitFrequencyUnit: freq,
+        visitFrequencyPeriod: 'month'
+      };
+      const id = await create('accounts', payload, auth.currentUser);
+      account = { id, ...payload };
+      accountByName.set(accountName.toLowerCase(), account);
+      createdAccounts += 1;
+    }
+
+    const siteName = String(row.site_name || '').trim();
+    const siteAddress = String(row.site_address || '').trim();
+    if (!siteName) continue;
+
+    const key = `${account.id}::${siteName.toLowerCase()}::${siteAddress.toLowerCase()}`;
+    if (siteKeySet.has(key)) continue;
+
+    await create('sites', {
+      accountId: account.id,
+      name: siteName,
+      address: siteAddress,
+      city: String(row.site_city || '').trim(),
+      notes: String(row.site_notes || '').trim(),
+      status: 'active'
+    }, auth.currentUser);
+    siteKeySet.add(key);
+    createdSites += 1;
+  }
+
+  toast(`Importación OK · Cuentas: ${createdAccounts} · Predios: ${createdSites}`);
+  await loadData();
+  renderBoard();
+}
+
 async function loadData(){
   // accounts ordenadas por updatedAt desc
   ACCOUNTS = await list("accounts", {
@@ -189,15 +415,16 @@ function wireModal(){
     const name = $("a_name").value.trim();
     if (!name) return toast("Falta el nombre");
 
+    const stage = $("a_stage").value;
     const data = {
       name,
       type: $("a_type").value,
       visitFrequencyUnit: Math.max(1, Number($("a_visitUnit").value || 1)),
       visitFrequencyPeriod: $("a_visitPeriod").value,
-      stage: $("a_stage").value,
+      stage,
       phone: $("a_phone").value.trim(),
       notes: $("a_notes").value.trim(),
-      status: "active"
+      status: stageToAccountStatus(stage)
     };
 
     $("btnSave").disabled = true;
@@ -231,5 +458,4 @@ async function init(){
   renderBoard();
 }
 
-// ✅ (CAMBIO) se mantiene init al final, y se elimina enableDragDrop() suelto
 init();
