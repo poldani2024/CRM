@@ -193,6 +193,10 @@ a{ color:inherit; text-decoration:none; }
   outline: 2px dashed #1a73e8;
   border-radius: 10px;
 }
+.col.drag-over{
+  outline: 2px dashed #1a73e8;
+  border-radius: 10px;
+}
 .col-head{
   display:flex; align-items:center; justify-content:space-between;
   padding: 8px 6px;
