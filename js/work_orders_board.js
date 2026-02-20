@@ -13,6 +13,11 @@ const COLUMNS = [
 let WORK_ORDERS = [];
 let EMPLOYEES = [];
 let draggedOrderId = null;
+let filters = {
+  employeeId: "",
+  account: "",
+  site: ""
+};
 
 function statusToColumn(status){
   if (["Confirmada", "No realizada"].includes(status)) return "todo";
@@ -42,17 +47,26 @@ function employeeLabel(employee){
   return `${employee.lastName || ""}${employee.lastName && employee.firstName ? ", " : ""}${employee.firstName || ""}`.trim() || "Sin empleado";
 }
 
-function buildRows(){
+function getFilteredOrders(){
+  return WORK_ORDERS
+    .filter(order=> !filters.employeeId || (order.employeeId || "no_employee") === filters.employeeId)
+    .filter(order=> !filters.account || (order.accountName || "") === filters.account)
+    .filter(order=> !filters.site || (order.siteName || "") === filters.site);
+}
+
+function buildRows(filteredOrders){
   const map = new Map();
 
-  for (const employee of EMPLOYEES){
-    map.set(employee.id, {
-      id: employee.id,
-      name: employeeLabel(employee)
-    });
+  if (!filters.employeeId){
+    for (const employee of EMPLOYEES){
+      map.set(employee.id, {
+        id: employee.id,
+        name: employeeLabel(employee)
+      });
+    }
   }
 
-  for (const order of WORK_ORDERS){
+  for (const order of filteredOrders){
     const empId = order.employeeId || "no_employee";
     if (!map.has(empId)){
       map.set(empId, {
@@ -62,22 +76,63 @@ function buildRows(){
     }
   }
 
+  if (!map.size && filters.employeeId === "no_employee"){
+    map.set("no_employee", { id: "no_employee", name: "Sin empleado" });
+  }
+
   return Array.from(map.values()).sort((a,b)=> a.name.localeCompare(b.name));
 }
 
-function cardsFor(employeeId, columnKey){
-  return WORK_ORDERS
+function cardsFor(employeeId, columnKey, filteredOrders){
+  return filteredOrders
     .filter(order=> (order.employeeId || "no_employee") === employeeId)
     .filter(order=> statusToColumn(order.status) === columnKey)
     .sort((a,b)=> String(a.orderNumber || "").localeCompare(String(b.orderNumber || "")));
 }
 
+function uniqueOrderValues(field){
+  return Array.from(new Set(WORK_ORDERS.map(o=> String(o[field] || "").trim()).filter(Boolean))).sort((a,b)=> a.localeCompare(b));
+}
+
 function render(){
-  const rows = buildRows();
+  const filteredOrders = getFilteredOrders();
+  const rows = buildRows(filteredOrders);
+  const companies = uniqueOrderValues("accountName");
+  const sites = uniqueOrderValues("siteName");
   const c = $("pageContent");
 
   c.innerHTML = `
     <div class="section-title">Tablero OT (Drag & Drop)</div>
+
+    <div class="panel" style="padding:12px;">
+      <div class="row" style="gap:10px; flex-wrap:wrap; align-items:flex-end;">
+        <div class="field">
+          <label>Usuario</label>
+          <select id="board_filter_employee">
+            <option value="">Todos</option>
+            <option value="no_employee" ${filters.employeeId==="no_employee"?"selected":""}>Sin empleado</option>
+            ${EMPLOYEES.map(emp=>`<option value="${escapeHtml(emp.id)}" ${filters.employeeId===emp.id?"selected":""}>${escapeHtml(employeeLabel(emp))}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field">
+          <label>Compañía</label>
+          <select id="board_filter_company">
+            <option value="">Todas</option>
+            ${companies.map(name=>`<option value="${escapeHtml(name)}" ${filters.account===name?"selected":""}>${escapeHtml(name)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field">
+          <label>Predio</label>
+          <select id="board_filter_site">
+            <option value="">Todos</option>
+            ${sites.map(name=>`<option value="${escapeHtml(name)}" ${filters.site===name?"selected":""}>${escapeHtml(name)}</option>`).join("")}
+          </select>
+        </div>
+        <button class="btn" id="board_clear_filters">Limpiar</button>
+      </div>
+    </div>
+
+    <div class="spacer"></div>
 
     <div class="panel" style="padding:12px; overflow:auto;">
       <div class="ot-grid">
@@ -88,7 +143,7 @@ function render(){
           <div class="ot-cell ot-employee">${escapeHtml(row.name)}</div>
           ${COLUMNS.map(col=>`
             <div class="ot-cell ot-drop-zone" data-drop-employee="${escapeHtml(row.id)}" data-drop-column="${col.key}">
-              ${cardsFor(row.id, col.key).map(order=>`
+              ${cardsFor(row.id, col.key, filteredOrders).map(order=>`
                 <div class="ot-card" draggable="true" data-order-id="${escapeHtml(order.id)}" title="Arrastrar para cambiar estado o empleado">
                   OT ${escapeHtml(order.orderNumber || "—")} · ${escapeHtml(order.accountName || "—")} · ${escapeHtml(order.siteName || "—")} · ${escapeHtml(order.status || "—")}
                 </div>
@@ -97,10 +152,31 @@ function render(){
           `).join("")}
         `).join("")}
       </div>
+      ${!rows.length ? `<div class="muted" style="margin-top:10px;">No hay órdenes para los filtros seleccionados.</div>` : ""}
     </div>
   `;
 
+  wireFilterEvents();
   wireDnD();
+}
+
+function wireFilterEvents(){
+  $("board_filter_employee")?.addEventListener("change", ()=>{
+    filters.employeeId = $("board_filter_employee").value;
+    render();
+  });
+  $("board_filter_company")?.addEventListener("change", ()=>{
+    filters.account = $("board_filter_company").value;
+    render();
+  });
+  $("board_filter_site")?.addEventListener("change", ()=>{
+    filters.site = $("board_filter_site").value;
+    render();
+  });
+  $("board_clear_filters")?.addEventListener("click", ()=>{
+    filters = { employeeId:"", account:"", site:"" };
+    render();
+  });
 }
 
 function wireDnD(){
@@ -116,9 +192,14 @@ function wireDnD(){
   });
 
   document.querySelectorAll(".ot-drop-zone").forEach(zone=>{
-    zone.addEventListener("dragover", ev=> ev.preventDefault());
+    zone.addEventListener("dragover", ev=>{
+      ev.preventDefault();
+      zone.classList.add("drag-over");
+    });
+    zone.addEventListener("dragleave", ()=> zone.classList.remove("drag-over"));
     zone.addEventListener("drop", async ev=>{
       ev.preventDefault();
+      zone.classList.remove("drag-over");
       if (!draggedOrderId) return;
 
       const order = WORK_ORDERS.find(w=>w.id === draggedOrderId);
