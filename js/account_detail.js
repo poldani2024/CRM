@@ -99,9 +99,10 @@ function render(){
           <div class="field">
             <label>Estado (board)</label>
             <select id="e_stage">
-              <option value="contacted">Contactado</option>
-              <option value="negotiation">Negociación</option>
+              <option value="prospect">Prospecto</option>
               <option value="offer_sent">Oferta enviada</option>
+              <option value="negotiation">Negociación</option>
+              <option value="account_active">Cuenta activa</option>
               <option value="closed">Cerrado</option>
             </select>
           </div>
@@ -252,12 +253,24 @@ function frequencyLabel(account){
   return `${unit} por ${periodLabel(period, unit)}`;
 }
 
+function normalizeStage(s){
+  if (s === "contacted") return "prospect";
+  if (s === "active") return "account_active";
+  return s || "prospect";
+}
+
+function stageToAccountStatus(stage){
+  return stage === "account_active" ? "active" : "inactive";
+}
+
 function stageLabel(s){
-  if (s==="contacted") return "Contactado";
-  if (s==="negotiation") return "Negociación";
-  if (s==="offer_sent") return "Oferta enviada";
-  if (s==="closed") return "Cerrado";
-  return s || "—";
+  const n = normalizeStage(s);
+  if (n==="prospect") return "Prospecto";
+  if (n==="offer_sent") return "Oferta enviada";
+  if (n==="negotiation") return "Negociación";
+  if (n==="account_active") return "Cuenta activa";
+  if (n==="closed") return "Cerrado";
+  return n || "—";
 }
 
 function openEdit(){
@@ -266,7 +279,7 @@ function openEdit(){
   $("e_type").value = ACCOUNT.type || "bank";
   $("e_visitUnit").value = String(Math.max(1, Number(ACCOUNT.visitFrequencyUnit || 1)));
   $("e_visitPeriod").value = ACCOUNT.visitFrequencyPeriod || "week";
-  $("e_stage").value = ACCOUNT.stage || "contacted";
+  $("e_stage").value = normalizeStage(ACCOUNT.stage);
   $("e_phone").value = ACCOUNT.phone || "";
   $("e_notes").value = ACCOUNT.notes || "";
 }
@@ -274,12 +287,14 @@ function closeEdit(){
   $("editBackdrop").style.display = "none";
 }
 async function saveEdit(){
+  const stage = $("e_stage").value;
   const data = {
     name: $("e_name").value.trim(),
     type: $("e_type").value,
     visitFrequencyUnit: Math.max(1, Number($("e_visitUnit").value || 1)),
     visitFrequencyPeriod: $("e_visitPeriod").value,
-    stage: $("e_stage").value,
+    stage,
+    status: stageToAccountStatus(stage),
     phone: $("e_phone").value.trim(),
     notes: $("e_notes").value.trim()
   };
