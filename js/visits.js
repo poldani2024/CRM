@@ -1,7 +1,8 @@
 import { loadShell } from "./ui_shell.js";
 import { requireRole } from "./auth.js";
-import { list } from "./data_access.js";
-import { escapeHtml, $ } from "./utils.js";
+import { auth } from "./firebase.js";
+import { list, create, update } from "./data_access.js";
+import { escapeHtml, $, toast } from "./utils.js";
 
 const PERIOD_DAYS = {
   day: 1,
@@ -10,6 +11,14 @@ const PERIOD_DAYS = {
   year: 365
 };
 
+const STATUS_OPTIONS = [
+  { value: "confirmed", label: "Confirmada" },
+  { value: "completed", label: "Concretada" },
+  { value: "missed", label: "No realizada" },
+  { value: "cancelled", label: "Cancelada" },
+  { value: "estimated", label: "Solo estimada" }
+];
+
 let ACCOUNTS = [];
 let SITES = [];
 let VISITS = [];
@@ -17,6 +26,7 @@ let rangeDays = 30;
 let startDate = startOfDay(new Date());
 let selectedAccountId = "";
 let selectedSiteId = "";
+let activeMenuCell = null;
 
 function startOfDay(d){
   const n = new Date(d);
@@ -46,7 +56,7 @@ function cadenceDays(account){
   return Math.max(1, base / unit);
 }
 
-function planningDatesForSite(site, account, endDate){
+function planningDatesForSite(account, endDate){
   const dates = [];
   const stepDays = cadenceDays(account);
   let cursor = new Date(startDate);
@@ -85,12 +95,17 @@ function statusLabel(status){
   return "Estimada";
 }
 
-function getStatusMap(){
+function getVisitMap(){
   const map = new Map();
   for (const v of VISITS){
     const dt = parseVisitDate(v);
     if (!dt || !v.siteId) continue;
-    map.set(`${v.siteId}|${dateKey(dt)}`, normalizeStatus(v.status));
+    map.set(`${v.siteId}|${dateKey(dt)}`, {
+      id: v.id,
+      status: normalizeStatus(v.status),
+      siteId: v.siteId,
+      accountId: v.accountId || ""
+    });
   }
   return map;
 }
@@ -107,12 +122,101 @@ function accountFilteredSites(){
   return SITES.filter(site=> !selectedAccountId || site.accountId === selectedAccountId);
 }
 
+function hideContextMenu(){
+  const menu = $("visitContextMenu");
+  if (!menu) return;
+  menu.style.display = "none";
+  activeMenuCell = null;
+}
+
+function showContextMenu(x, y, siteId, accountId, dKey, currentStatus){
+  const menu = $("visitContextMenu");
+  if (!menu) return;
+
+  activeMenuCell = { siteId, accountId, dKey };
+
+  menu.innerHTML = `
+    <div class="small muted" style="margin-bottom:6px;">${escapeHtml(dKey)}</div>
+    ${STATUS_OPTIONS.map(opt=>`
+      <button class="visit-menu-item ${currentStatus===opt.value?"active":""}" data-status="${opt.value}">${escapeHtml(opt.label)}</button>
+    `).join("")}
+  `;
+
+  menu.style.display = "block";
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+
+  const rect = menu.getBoundingClientRect();
+  if (rect.right > window.innerWidth - 8){
+    menu.style.left = `${Math.max(8, window.innerWidth - rect.width - 8)}px`;
+  }
+  if (rect.bottom > window.innerHeight - 8){
+    menu.style.top = `${Math.max(8, window.innerHeight - rect.height - 8)}px`;
+  }
+
+  menu.querySelectorAll("[data-status]").forEach(btn=>{
+    btn.addEventListener("click", async ()=>{
+      const status = btn.dataset.status;
+      await saveVisitStatus(status);
+    });
+  });
+}
+
+async function saveVisitStatus(status){
+  if (!activeMenuCell) return;
+
+  const { siteId, accountId, dKey } = activeMenuCell;
+  const existing = VISITS.find(v=>{
+    const dt = parseVisitDate(v);
+    return dt && v.siteId === siteId && dateKey(dt) === dKey;
+  });
+
+  const payload = {
+    siteId,
+    accountId,
+    plannedDate: dKey,
+    status
+  };
+
+  try{
+    if (existing?.id){
+      await update("visits", existing.id, payload, auth.currentUser);
+    } else {
+      await create("visits", payload, auth.currentUser);
+    }
+    hideContextMenu();
+    await loadData();
+    render();
+    toast("Visita actualizada");
+  } catch(err){
+    console.error(err);
+    toast(err?.message || "No se pudo guardar la visita");
+  }
+}
+
+function wireMenuEvents(visitMap){
+  document.querySelectorAll("[data-visit-cell]").forEach(cell=>{
+    cell.addEventListener("click", (ev)=>{
+      ev.stopPropagation();
+      const siteId = cell.dataset.siteId;
+      const accountId = cell.dataset.accountId;
+      const dKey = cell.dataset.date;
+      const existing = visitMap.get(`${siteId}|${dKey}`);
+      showContextMenu(ev.clientX + 6, ev.clientY + 6, siteId, accountId, dKey, existing?.status || "");
+    });
+  });
+
+  document.addEventListener("click", hideContextMenu);
+  window.addEventListener("resize", hideContextMenu);
+  window.addEventListener("scroll", hideContextMenu, true);
+}
+
 function render(){
   const c = $("pageContent");
   const endDate = new Date(startDate.getTime() + rangeDays * 24 * 60 * 60 * 1000);
   const dateCols = buildDateColumns();
   const accountsById = new Map(ACCOUNTS.map(a=>[a.id, a]));
-  const statusMap = getStatusMap();
+  const visitMap = getVisitMap();
   const filteredSites = accountFilteredSites();
 
   if (selectedSiteId && !filteredSites.some(s=>s.id === selectedSiteId)){
@@ -198,17 +302,18 @@ function render(){
         </thead>
         <tbody>
           ${rows.map(({ site, account })=>{
-            const estimatedDates = new Set(planningDatesForSite(site, account, endDate));
+            const estimatedDates = new Set(planningDatesForSite(account, endDate));
             return `
               <tr>
                 <td class="sticky-col col-account">${escapeHtml(account.name || "—")}</td>
                 <td class="sticky-col col-site">${escapeHtml(site.name || "—")}</td>
                 ${dateCols.map(d=>{
-                  const key = dateKey(d);
-                  const maybeStatus = statusMap.get(`${site.id}|${key}`);
-                  const status = maybeStatus || (estimatedDates.has(key) ? "estimated" : "");
-                  if (!status) return `<td class="visit-cell"></td>`;
-                  return `<td class="visit-cell" title="${escapeHtml(statusLabel(status))}"><span class="visit-dot ${statusClass(status)}"></span></td>`;
+                  const dKey = dateKey(d);
+                  const existingVisit = visitMap.get(`${site.id}|${dKey}`);
+                  const status = existingVisit?.status || (estimatedDates.has(dKey) ? "estimated" : "");
+                  const dot = status ? `<span class="visit-dot ${statusClass(status)}"></span>` : "";
+                  const title = status ? statusLabel(status) : "Agregar estado";
+                  return `<td class="visit-cell" data-visit-cell="1" data-site-id="${escapeHtml(site.id)}" data-account-id="${escapeHtml(account.id)}" data-date="${escapeHtml(dKey)}" title="${escapeHtml(title)}">${dot}</td>`;
                 }).join("")}
               </tr>
             `;
@@ -216,16 +321,20 @@ function render(){
         </tbody>
       </table>
     </div>
+
+    <div id="visitContextMenu" class="visit-context-menu" style="display:none;"></div>
   `;
 
   $("v_accountFilter").addEventListener("change", ()=>{
     selectedAccountId = $("v_accountFilter").value;
     selectedSiteId = "";
+    hideContextMenu();
     render();
   });
 
   $("v_siteFilter").addEventListener("change", ()=>{
     selectedSiteId = $("v_siteFilter").value;
+    hideContextMenu();
     render();
   });
 
@@ -235,8 +344,11 @@ function render(){
     rangeDays = Number($("v_horizon").value || 30);
     selectedAccountId = $("v_accountFilter").value;
     selectedSiteId = $("v_siteFilter").value;
+    hideContextMenu();
     render();
   });
+
+  wireMenuEvents(visitMap);
 }
 
 async function loadData(){
@@ -270,6 +382,7 @@ async function init(){
     primaryText: "Hoy",
     onPrimary: ()=>{
       startDate = startOfDay(new Date());
+      hideContextMenu();
       render();
     }
   });
