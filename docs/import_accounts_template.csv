@@ -1,0 +1,4 @@
+account_name,account_type,visit_frequency_per_month,stage,phone,notes,site_name,site_address,site_city,site_notes
+ACME S.A.,business,4,account_active,+5493410000000,Cliente estratégico,Planta Norte,Av. Siempre Viva 123,Rosario,Acceso por portería
+ACME S.A.,business,4,account_active,+5493410000000,Cliente estratégico,Depósito Sur,Camino Viejo 456,Rosario,
+Banco Río,bank,1,prospect,,Primer contacto,Sucursal Centro,San Martín 999,Córdoba,Horario 9 a 15

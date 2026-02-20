@@ -112,7 +112,13 @@ function enableDragDrop(){
 function renderBoard(){
   const content = document.getElementById("pageContent");
   content.innerHTML = `
-    <div class="section-title">Cuentas</div>
+    <div class="row" style="justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+      <div class="section-title" style="margin:0;">Cuentas</div>
+      <div class="row" style="gap:8px;">
+        <input id="accountsImportFile" type="file" accept=".csv,text/csv" style="display:none;" />
+        <button class="btn" id="btnImportAccounts">Importar CSV</button>
+      </div>
+    </div>
     <div class="board">
       ${STAGES.map(s=>`
         <div class="col" data-drop-stage="${s.key}">
@@ -125,6 +131,20 @@ function renderBoard(){
       `).join("")}
     </div>
   `;
+
+  const fileInput = document.getElementById("accountsImportFile");
+  document.getElementById("btnImportAccounts").addEventListener("click", ()=> fileInput.click());
+  fileInput.addEventListener("change", async ()=>{
+    const file = fileInput.files?.[0];
+    fileInput.value = "";
+    if (!file) return;
+    try{
+      await importAccountsFromCsv(file);
+    } catch(err){
+      console.error(err);
+      toast(err?.message || "Error importando CSV");
+    }
+  });
 
   // distribuir cards
   const byStage = {};
@@ -195,6 +215,188 @@ function frequencyLabel(account){
   const period = account.visitFrequencyPeriod;
   if (!unit || !period) return "";
   return `${unit} por ${periodLabel(period, unit)}`;
+}
+
+
+function normalizeType(raw){
+  const v = String(raw || "").trim().toLowerCase();
+  if (!v) return "business";
+  const map = {
+    banco: "bank",
+    bank: "bank",
+    edificio: "building",
+    building: "building",
+    deposito: "warehouse",
+    depósito: "warehouse",
+    warehouse: "warehouse",
+    local: "store",
+    tienda: "store",
+    store: "store",
+    planta: "plant",
+    plant: "plant",
+    empresa: "business",
+    business: "business",
+    comercial: "commercial",
+    commercial: "commercial",
+    residencial: "residential",
+    residential: "residential"
+  };
+  return map[v] || "business";
+}
+
+function parseCsv(text){
+  const rows = [];
+  let row = [];
+  let current = "";
+  let i = 0;
+  let inQuotes = false;
+
+  while (i < text.length){
+    const ch = text[i];
+
+    if (inQuotes){
+      if (ch === '"'){
+        if (text[i + 1] === '"'){
+          current += '"';
+          i += 2;
+          continue;
+        }
+        inQuotes = false;
+        i += 1;
+        continue;
+      }
+      current += ch;
+      i += 1;
+      continue;
+    }
+
+    if (ch === '"'){
+      inQuotes = true;
+      i += 1;
+      continue;
+    }
+    if (ch === '\n'){
+      row.push(current);
+      rows.push(row);
+      row = [];
+      current = "";
+      i += 1;
+      continue;
+    }
+    if (ch === '\r'){
+      i += 1;
+      continue;
+    }
+
+    current += ch;
+    i += 1;
+  }
+
+  if (current.length || row.length){
+    row.push(current);
+    rows.push(row);
+  }
+
+  if (!rows.length) return [];
+
+  const delimiter = (rows[0].join('').match(/;/g) || []).length > (rows[0].join('').match(/,/g) || []).length ? ';' : ',';
+  const splitRows = rows.map(r=> r.length === 1 ? r[0].split(delimiter) : r);
+  const headers = splitRows[0].map(h => String(h || '').trim());
+  return splitRows.slice(1)
+    .filter(r => r.some(c => String(c || '').trim()))
+    .map(r => {
+      const obj = {};
+      headers.forEach((h, idx)=>{ obj[h] = String(r[idx] || '').trim(); });
+      return obj;
+    });
+}
+
+function normalizeStageImport(raw){
+  const v = String(raw || '').trim().toLowerCase();
+  if (!v) return 'prospect';
+  const map = {
+    prospecto: 'prospect',
+    prospect: 'prospect',
+    'oferta enviada': 'offer_sent',
+    oferta_enviada: 'offer_sent',
+    offer_sent: 'offer_sent',
+    negociacion: 'negotiation',
+    negociación: 'negotiation',
+    negotiation: 'negotiation',
+    'cuenta activa': 'account_active',
+    account_active: 'account_active',
+    activo: 'account_active',
+    active: 'account_active',
+    cerrado: 'closed',
+    closed: 'closed'
+  };
+  return map[v] || normalizeStage(v);
+}
+
+async function importAccountsFromCsv(file){
+  const text = await file.text();
+  const rows = parseCsv(text);
+  if (!rows.length) return toast('CSV vacío');
+
+  const required = ['account_name'];
+  const missing = required.filter(k => !(k in rows[0]));
+  if (missing.length) return toast(`Faltan columnas: ${missing.join(', ')}`);
+
+  const existingAccounts = await list('accounts', { order:{ field:'name', dir:'asc' }, max:1000 });
+  const existingSites = await list('sites', { order:null, max:2000 });
+
+  const accountByName = new Map(existingAccounts.map(a => [String(a.name || '').trim().toLowerCase(), a]));
+  const siteKeySet = new Set(existingSites.map(s => `${s.accountId || ''}::${String(s.name || '').trim().toLowerCase()}::${String(s.address || '').trim().toLowerCase()}`));
+
+  let createdAccounts = 0;
+  let createdSites = 0;
+
+  for (const row of rows){
+    const accountName = String(row.account_name || '').trim();
+    if (!accountName) continue;
+
+    let account = accountByName.get(accountName.toLowerCase());
+    if (!account){
+      const stage = normalizeStageImport(row.stage);
+      const freq = Math.max(1, Number(row.visit_frequency_per_month || 1));
+      const payload = {
+        name: accountName,
+        type: normalizeType(row.account_type),
+        phone: String(row.phone || '').trim(),
+        notes: String(row.notes || '').trim(),
+        stage,
+        status: stageToAccountStatus(stage),
+        visitFrequencyUnit: freq,
+        visitFrequencyPeriod: 'month'
+      };
+      const id = await create('accounts', payload, auth.currentUser);
+      account = { id, ...payload };
+      accountByName.set(accountName.toLowerCase(), account);
+      createdAccounts += 1;
+    }
+
+    const siteName = String(row.site_name || '').trim();
+    const siteAddress = String(row.site_address || '').trim();
+    if (!siteName) continue;
+
+    const key = `${account.id}::${siteName.toLowerCase()}::${siteAddress.toLowerCase()}`;
+    if (siteKeySet.has(key)) continue;
+
+    await create('sites', {
+      accountId: account.id,
+      name: siteName,
+      address: siteAddress,
+      city: String(row.site_city || '').trim(),
+      notes: String(row.site_notes || '').trim(),
+      status: 'active'
+    }, auth.currentUser);
+    siteKeySet.add(key);
+    createdSites += 1;
+  }
+
+  toast(`Importación OK · Cuentas: ${createdAccounts} · Predios: ${createdSites}`);
+  await loadData();
+  renderBoard();
 }
 
 async function loadData(){
