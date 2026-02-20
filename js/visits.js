@@ -31,6 +31,7 @@ let selectedAccountId = "";
 let selectedSiteId = "";
 let activeMenuCell = null;
 let selectedVisitForOrder = null;
+let bulkSelectedSiteIds = new Set();
 
 function startOfDay(d){
   const n = new Date(d);
@@ -329,6 +330,84 @@ async function createOrderFromVisit(){
   }
 }
 
+function updateBulkSelectionUI(visibleRows){
+  const selectedVisible = visibleRows.filter(r=>bulkSelectedSiteIds.has(r.site.id)).length;
+  const countEl = $("bulkSelectedCount");
+  if (countEl) countEl.textContent = String(selectedVisible);
+
+  const btn = $("btnBulkPlan");
+  if (btn) btn.disabled = selectedVisible === 0;
+
+  const allCheckbox = $("bulkSelectAll");
+  if (allCheckbox){
+    allCheckbox.checked = visibleRows.length > 0 && selectedVisible === visibleRows.length;
+    allCheckbox.indeterminate = selectedVisible > 0 && selectedVisible < visibleRows.length;
+  }
+}
+
+function openBulkPlanModal(){
+  const selectedCount = [...bulkSelectedSiteIds].length;
+  if (!selectedCount) return toast("Seleccioná al menos un predio");
+  $("bulk_visitDate").value = dateKey(new Date());
+  $("bulk_visitStatus").value = "confirmed";
+  $("bulk_selectedInfo").textContent = `${selectedCount} predios seleccionados`;
+  $("bulkPlanBackdrop").style.display = "flex";
+}
+
+function closeBulkPlanModal(){
+  $("bulkPlanBackdrop").style.display = "none";
+}
+
+async function saveBulkPlannedVisits(){
+  const plannedDate = $("bulk_visitDate").value;
+  const status = $("bulk_visitStatus").value;
+  if (!plannedDate) return toast("Seleccioná la fecha");
+  if (!status) return toast("Seleccioná un estado");
+
+  const selectedIds = [...bulkSelectedSiteIds];
+  if (!selectedIds.length) return toast("No hay predios seleccionados");
+
+  const sitesById = new Map(SITES.map(s=>[s.id, s]));
+  const existingByKey = new Map();
+  for (const visit of VISITS){
+    const dt = parseVisitDate(visit);
+    if (!dt || !visit.siteId) continue;
+    existingByKey.set(`${visit.siteId}|${dateKey(dt)}`, visit);
+  }
+
+  $("btnBulkSave").disabled = true;
+  try{
+    for (const siteId of selectedIds){
+      const site = sitesById.get(siteId);
+      if (!site?.accountId) continue;
+      const key = `${siteId}|${plannedDate}`;
+      const payload = {
+        siteId,
+        accountId: site.accountId,
+        plannedDate,
+        status
+      };
+      const existing = existingByKey.get(key);
+      if (existing?.id){
+        await update("visits", existing.id, payload, auth.currentUser);
+      } else {
+        await create("visits", payload, auth.currentUser);
+      }
+    }
+
+    closeBulkPlanModal();
+    hideContextMenu();
+    await loadData();
+    render();
+    toast(`Visitas actualizadas: ${selectedIds.length}`);
+  } catch(err){
+    console.error(err);
+    toast(err?.message || "No se pudo guardar la planificación masiva");
+  } finally {
+    $("btnBulkSave").disabled = false;
+  }
+}
+
 function wireMenuEvents(visitMap){
   document.querySelectorAll("[data-visit-cell]").forEach(cell=>{
     cell.addEventListener("click", (ev)=>{
@@ -367,6 +446,9 @@ function render(){
       if (an !== 0) return an;
       return (a.site.name || "").localeCompare(b.site.name || "");
     });
+
+  const rowIds = new Set(rows.map(r=>r.site.id));
+  bulkSelectedSiteIds = new Set([...bulkSelectedSiteIds].filter(id=>rowIds.has(id)));
 
   c.innerHTML = `
     <div class="section-title">Visitas</div>
@@ -410,7 +492,9 @@ function render(){
 
         <button class="btn btn-primary" id="btnRefreshVisits">Actualizar vista</button>
 
-        <div class="muted small">Predios planificados: ${rows.length} · Hasta ${escapeHtml(endDate.toLocaleDateString("es-AR"))}</div>
+        <button class="btn" id="btnBulkPlan" ${bulkSelectedSiteIds.size?"":"disabled"}>Planificar selección</button>
+
+        <div class="muted small">Predios planificados: ${rows.length} · Seleccionados: <span id="bulkSelectedCount">0</span> · Hasta ${escapeHtml(endDate.toLocaleDateString("es-AR"))}</div>
       </div>
 
       <div class="spacer"></div>
@@ -432,6 +516,7 @@ function render(){
       <table class="gantt-table">
         <thead>
           <tr>
+            <th class="sticky-col col-select"><input type="checkbox" id="bulkSelectAll" title="Seleccionar todo" /></th>
             <th class="sticky-col col-account">Cuenta</th>
             <th class="sticky-col col-site">Predio</th>
             ${dateCols.map(d=>`<th class="col-date">${fmtDate(d)}</th>`).join("")}
@@ -442,6 +527,7 @@ function render(){
             const estimatedDates = new Set(planningDatesForSite(account, endDate));
             return `
               <tr>
+                <td class="sticky-col col-select"><input type="checkbox" class="visit-row-check" data-site-select="${escapeHtml(site.id)}" ${bulkSelectedSiteIds.has(site.id)?"checked":""} /></td>
                 <td class="sticky-col col-account">${escapeHtml(account.name || "—")}</td>
                 <td class="sticky-col col-site">${escapeHtml(site.name || "—")}</td>
                 ${dateCols.map(d=>{
@@ -460,6 +546,27 @@ function render(){
     </div>
 
     <div id="visitContextMenu" class="visit-context-menu" style="display:none;"></div>
+
+    <div class="modal-backdrop" id="bulkPlanBackdrop">
+      <div class="modal" style="max-width:520px;">
+        <div class="modal-head">
+          <div class="modal-title">Planificar visitas en lote</div>
+          <button class="btn btn-ghost" id="btnCloseBulkModal">✕</button>
+        </div>
+        <div class="spacer"></div>
+        <div class="muted small" id="bulk_selectedInfo">0 predios seleccionados</div>
+        <div class="spacer"></div>
+        <div class="field"><label>Fecha para todos</label><input type="date" id="bulk_visitDate" value="${dateKey(new Date())}" /></div>
+        <div class="field">
+          <label>Estado para todos</label>
+          <select id="bulk_visitStatus">${STATUS_OPTIONS.map(opt=>`<option value="${escapeHtml(opt.value)}">${escapeHtml(opt.label)}</option>`).join("")}</select>
+        </div>
+        <div class="modal-actions">
+          <button class="btn" id="btnCancelBulkModal">Cancelar</button>
+          <button class="btn btn-primary" id="btnBulkSave">Procesar selección</button>
+        </div>
+      </div>
+    </div>
 
     <div class="modal-backdrop" id="orderModalBackdrop">
       <div class="modal" style="max-width:560px;">
@@ -504,11 +611,42 @@ function render(){
     render();
   });
 
+  const allCheck = $("bulkSelectAll");
+  allCheck?.addEventListener("click", ev=> ev.stopPropagation());
+  allCheck?.addEventListener("change", ()=>{
+    const checked = !!allCheck.checked;
+    rows.forEach(({site})=>{
+      if (checked) bulkSelectedSiteIds.add(site.id);
+      else bulkSelectedSiteIds.delete(site.id);
+    });
+    document.querySelectorAll("[data-site-select]").forEach(input=>{
+      input.checked = checked;
+    });
+    updateBulkSelectionUI(rows);
+  });
+
+  document.querySelectorAll("[data-site-select]").forEach(input=>{
+    input.addEventListener("click", ev=> ev.stopPropagation());
+    input.addEventListener("change", ()=>{
+      const siteId = input.dataset.siteSelect;
+      if (!siteId) return;
+      if (input.checked) bulkSelectedSiteIds.add(siteId);
+      else bulkSelectedSiteIds.delete(siteId);
+      updateBulkSelectionUI(rows);
+    });
+  });
+
+  $("btnBulkPlan")?.addEventListener("click", openBulkPlanModal);
+  $("btnCloseBulkModal")?.addEventListener("click", closeBulkPlanModal);
+  $("btnCancelBulkModal")?.addEventListener("click", closeBulkPlanModal);
+  $("btnBulkSave")?.addEventListener("click", saveBulkPlannedVisits);
+
   $("btnCloseOrderModal")?.addEventListener("click", closeAssignOrderModal);
   $("btnCancelOrderModal")?.addEventListener("click", closeAssignOrderModal);
   $("btnCreateOrder")?.addEventListener("click", createOrderFromVisit);
 
   wireMenuEvents(visitMap);
+  updateBulkSelectionUI(rows);
 }
 
 async function loadData(){
