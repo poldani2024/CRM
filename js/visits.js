@@ -15,6 +15,8 @@ let SITES = [];
 let VISITS = [];
 let rangeDays = 30;
 let startDate = startOfDay(new Date());
+let selectedAccountId = "";
+let selectedSiteId = "";
 
 function startOfDay(d){
   const n = new Date(d);
@@ -101,16 +103,26 @@ function buildDateColumns(){
   return cols;
 }
 
+function accountFilteredSites(){
+  return SITES.filter(site=> !selectedAccountId || site.accountId === selectedAccountId);
+}
+
 function render(){
   const c = $("pageContent");
   const endDate = new Date(startDate.getTime() + rangeDays * 24 * 60 * 60 * 1000);
   const dateCols = buildDateColumns();
   const accountsById = new Map(ACCOUNTS.map(a=>[a.id, a]));
   const statusMap = getStatusMap();
+  const filteredSites = accountFilteredSites();
 
-  const rows = SITES
+  if (selectedSiteId && !filteredSites.some(s=>s.id === selectedSiteId)){
+    selectedSiteId = "";
+  }
+
+  const rows = filteredSites
     .map(site=>({ site, account: accountsById.get(site.accountId) }))
     .filter(row=>row.account)
+    .filter(row=> !selectedSiteId || row.site.id === selectedSiteId)
     .sort((a,b)=>{
       const an = (a.account.name || "").localeCompare(b.account.name || "");
       if (an !== 0) return an;
@@ -122,6 +134,26 @@ function render(){
 
     <div class="panel" style="padding:14px;">
       <div class="row" style="gap:12px; flex-wrap:wrap; align-items:flex-end;">
+        <div class="field">
+          <label>Cuenta</label>
+          <select id="v_accountFilter">
+            <option value="">Todas las cuentas</option>
+            ${ACCOUNTS.map(account=>`
+              <option value="${escapeHtml(account.id)}" ${selectedAccountId===account.id?"selected":""}>${escapeHtml(account.name || "—")}</option>
+            `).join("")}
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Predio</label>
+          <select id="v_siteFilter">
+            <option value="">Todos los predios</option>
+            ${filteredSites.map(site=>`
+              <option value="${escapeHtml(site.id)}" ${selectedSiteId===site.id?"selected":""}>${escapeHtml(site.name || "—")}</option>
+            `).join("")}
+          </select>
+        </div>
+
         <div class="field">
           <label>Desde fecha</label>
           <input id="v_start" type="date" value="${dateKey(startDate)}" />
@@ -186,10 +218,23 @@ function render(){
     </div>
   `;
 
+  $("v_accountFilter").addEventListener("change", ()=>{
+    selectedAccountId = $("v_accountFilter").value;
+    selectedSiteId = "";
+    render();
+  });
+
+  $("v_siteFilter").addEventListener("change", ()=>{
+    selectedSiteId = $("v_siteFilter").value;
+    render();
+  });
+
   $("btnRefreshVisits").addEventListener("click", ()=>{
     const dt = $("v_start").value;
     startDate = dt ? startOfDay(new Date(`${dt}T00:00:00`)) : startOfDay(new Date());
     rangeDays = Number($("v_horizon").value || 30);
+    selectedAccountId = $("v_accountFilter").value;
+    selectedSiteId = $("v_siteFilter").value;
     render();
   });
 }
