@@ -241,7 +241,7 @@ async function loadData(){
   });
 
   const filters = [];
-  if (accountIdPrefill) filters.push({ field:"accountId", op:"==", value: accountIdPrefill });
+ if (accountIdPrefill) filters.push({ field:"accountId", op:"==", value: accountIdPrefill });
 
   SITES = await list("sites", { filters, order:null, max:500 });
   SITES.sort((a,b)=>{
