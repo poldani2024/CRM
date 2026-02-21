@@ -275,6 +275,23 @@ a{ color:inherit; text-decoration:none; }
 .modal-title{ font-weight: 800; font-size: 16px; }
 .modal-actions{ display:flex; gap:10px; justify-content:flex-end; margin-top: 12px; }
 
+.employee-checklist{
+  border:1px solid var(--line);
+  border-radius: 10px;
+  max-height: 170px;
+  overflow:auto;
+  padding: 8px;
+  display:grid;
+  gap:6px;
+  min-width: 240px;
+}
+.employee-check-item{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  font-size: 13px;
+}
+
 /* ====== responsive ====== */
 @media (max-width: 1024px){
   .board{ grid-template-columns: repeat(2, minmax(220px, 1fr)); }
