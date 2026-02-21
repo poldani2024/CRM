@@ -279,6 +279,21 @@ function employeeLabel(emp){
   return `${emp.lastName || ""}${emp.lastName && emp.firstName ? ", " : ""}${emp.firstName || ""}`.trim() || "—";
 }
 
+function selectedOrderEmployeeIds(){
+  return Array.from(document.querySelectorAll("#order_employees input[type='checkbox']:checked"))
+    .map(input=> String(input.value || ""))
+    .filter(Boolean);
+}
+
+function renderOrderEmployeesChecklist(){
+  return EMPLOYEES.map(emp=>`
+    <label class="employee-check-item">
+      <input type="checkbox" value="${escapeHtml(emp.id)}" />
+      <span>${escapeHtml(employeeLabel(emp))}</span>
+    </label>
+  `).join("");
+}
+
 function openAssignOrderModal(visitId){
   const visit = VISITS.find(v=>v.id === visitId);
   if (!visit) return toast("No se encontró la visita confirmada");
@@ -291,7 +306,8 @@ function openAssignOrderModal(visitId){
   const site = SITES.find(s=>s.id === visit.siteId);
   $("order_visitAccount").textContent = account?.name || "—";
   $("order_visitSite").textContent = site?.name || "—";
-  $("order_employee").innerHTML = `<option value="">Seleccionar</option>${EMPLOYEES.map(emp=>`<option value="${escapeHtml(emp.id)}">${escapeHtml(employeeLabel(emp))}</option>`).join("")}`;
+  $("order_employees").innerHTML = renderOrderEmployeesChecklist();
+  $("order_schedule").value = "";
   $("order_observations").value = "";
   $("orderModalBackdrop").style.display = "flex";
 }
@@ -303,10 +319,12 @@ function closeAssignOrderModal(){
 
 async function createOrderFromVisit(){
   if (!selectedVisitForOrder) return;
-  const employeeId = $("order_employee").value;
-  if (!employeeId) return toast("Seleccioná un empleado");
+  const employeeIds = selectedOrderEmployeeIds();
+  if (!employeeIds.length) return toast("Seleccioná al menos un empleado");
 
-  const employee = EMPLOYEES.find(e=>e.id === employeeId);
+  const employees = employeeIds
+    .map(id=> EMPLOYEES.find(e=>e.id === id))
+    .filter(Boolean);
   const account = ACCOUNTS.find(a=>a.id === selectedVisitForOrder.accountId);
   const site = SITES.find(s=>s.id === selectedVisitForOrder.siteId);
 
@@ -316,7 +334,8 @@ async function createOrderFromVisit(){
       visitId: selectedVisitForOrder.id,
       account,
       site,
-      employee,
+      employees,
+      schedule: $("order_schedule").value,
       observations: $("order_observations").value,
       generatedBy: auth.currentUser
     });
@@ -578,7 +597,8 @@ function render(){
         <div class="field"><label>Fecha visita</label><div id="order_visitDate" class="muted">—</div></div>
         <div class="field"><label>Empresa</label><div id="order_visitAccount" class="muted">—</div></div>
         <div class="field"><label>Predio</label><div id="order_visitSite" class="muted">—</div></div>
-        <div class="field"><label>Empleado asignado</label><select id="order_employee"></select></div>
+        <div class="field"><label>Empleados asignados</label><div id="order_employees" class="employee-checklist"></div></div>
+        <div class="field"><label>Horario</label><input id="order_schedule" type="time" /></div>
         <div class="field"><label>Observaciones</label><textarea id="order_observations"></textarea></div>
         <div class="modal-actions">
           <button class="btn" id="btnCancelOrderModal">Cancelar</button>
