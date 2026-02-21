@@ -16,6 +16,7 @@ const filters = {
   employeeId: "",
   accountName: "",
   siteName: "",
+  dateMode: "today",
   date: ""
 };
 
@@ -91,6 +92,8 @@ function detectCurrentEmployeeId(){
 }
 
 function filteredOrders(){
+  const today = toDateKey(new Date());
+
   return WORK_ORDERS
     .filter(order=>{
       const refs = orderEmployeeRefs(order);
@@ -100,7 +103,13 @@ function filteredOrders(){
     })
     .filter(order=> !filters.accountName || (order.accountName || "") === filters.accountName)
     .filter(order=> !filters.siteName || (order.siteName || "") === filters.siteName)
-    .filter(order=> !filters.date || normalizeDate(order.visitDate || order.generatedAt) === filters.date)
+    .filter(order=>{
+      const d = normalizeDate(order.visitDate || order.generatedAt);
+      if (!d) return false;
+      if (filters.dateMode === "upcoming") return d >= today;
+      if (filters.dateMode === "custom") return !filters.date || d === filters.date;
+      return d === today;
+    })
     .sort((a,b)=> normalizeDate(a.visitDate || a.generatedAt).localeCompare(normalizeDate(b.visitDate || b.generatedAt)));
 }
 
@@ -146,9 +155,18 @@ function render(){
           </select>
         </div>
 
-        <div class="field" style="grid-column:1/-1;">
+        <div class="field">
+          <label>Periodo</label>
+          <select id="mywo_date_mode">
+            <option value="today" ${filters.dateMode==="today"?"selected":""}>Hoy</option>
+            <option value="upcoming" ${filters.dateMode==="upcoming"?"selected":""}>Próximas</option>
+            <option value="custom" ${filters.dateMode==="custom"?"selected":""}>Fecha específica</option>
+          </select>
+        </div>
+
+        <div class="field">
           <label>Fecha</label>
-          <input id="mywo_date" type="date" value="${escapeHtml(filters.date)}" />
+          <input id="mywo_date" type="date" value="${escapeHtml(filters.date)}" ${filters.dateMode==="custom"?"":"disabled"} />
         </div>
       </div>
     </div>
@@ -189,8 +207,14 @@ function render(){
     filters.siteName = $("mywo_site").value;
     render();
   });
+  $("mywo_date_mode").addEventListener("change", ()=>{
+    filters.dateMode = $("mywo_date_mode").value;
+    render();
+  });
+
   $("mywo_date").addEventListener("change", ()=>{
     filters.date = $("mywo_date").value;
+    filters.dateMode = "custom";
     render();
   });
 
