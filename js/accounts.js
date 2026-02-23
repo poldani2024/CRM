@@ -9,6 +9,7 @@ const STAGES = [
   { key:"offer_sent", label:"Oferta enviada" },
   { key:"negotiation", label:"Negociación" },
   { key:"account_active", label:"Cuenta activa" },
+  { key:"account_inactive", label:"Cuenta inactiva" },
   { key:"closed", label:"Cerrado" }
 ];
 
@@ -19,12 +20,63 @@ function normalizeStage(stage){
   const raw = String(stage || "");
   if (raw === "contacted") return "prospect";
   if (raw === "active") return "account_active";
+  if (raw === "inactive") return "account_inactive";
   if (STAGES.some(s=>s.key === raw)) return raw;
   return "prospect";
 }
 
 function stageToAccountStatus(stage){
   return stage === "account_active" ? "active" : "inactive";
+}
+
+function normalizeMailNotice(raw){
+  const v = String(raw || "").trim().toLowerCase();
+  if (!v) return "";
+  if (["mail", "correo", "email"].includes(v)) return "mail";
+  if (["cd"].includes(v)) return "cd";
+  if (["sicop"].includes(v)) return "sicop";
+  if (["cetronic"].includes(v)) return "cetronic";
+  if (["1", "true", "si", "sí", "x", "yes"].includes(v)) return "mail";
+  return "";
+}
+
+function mailNoticeLabel(raw){
+  const v = normalizeMailNotice(raw);
+  if (v === "mail") return "Mail";
+  if (v === "cd") return "CD";
+  if (v === "sicop") return "SICOP";
+  if (v === "cetronic") return "Cetronic";
+  return "Sin definir";
+}
+
+function subcontractorOptions(){
+  return Array.from(new Set(
+    ACCOUNTS
+      .map(a=> String(a?.subcontractor || "").trim())
+      .filter(Boolean)
+  )).sort((a,b)=> a.localeCompare(b));
+}
+
+function renderSubcontractorOptions(){
+  const dl = $("a_subcontractor_options");
+  if (!dl) return;
+  dl.innerHTML = subcontractorOptions()
+    .map(v=> `<option value="${escapeHtml(v)}"></option>`)
+    .join("");
+}
+
+async function deactivateSitesForAccount(accountId){
+  const sites = await list("sites", {
+    filters: [
+      { field:"accountId", op:"==", value: accountId },
+      { field:"status", op:"==", value:"active" }
+    ],
+    order: null,
+    max: 2000
+  });
+  for (const site of sites){
+    await update("sites", site.id, { status:"inactive" }, auth.currentUser);
+  }
 }
 
 
@@ -36,6 +88,10 @@ function closeModal(){
   $("a_name").value = "";
   $("a_phone").value = "";
   $("a_notes").value = "";
+  $("a_subcontractor").value = "";
+  $("a_sheetCount").value = "0";
+  $("a_certificateCount").value = "0";
+  $("a_mailNotice").value = "";
   $("a_type").value = "bank";
   $("a_visitUnit").value = "1";
   $("a_visitPeriod").value = "week";
@@ -97,6 +153,9 @@ function enableDragDrop(){
           stage: newStage,
           status: stageToAccountStatus(newStage)
         }, auth.currentUser);
+        if (stageToAccountStatus(newStage) === "inactive"){
+          await deactivateSitesForAccount(draggedId);
+        }
         toast("Movido ✅");
 
         await loadData();
@@ -168,7 +227,11 @@ function renderBoard(){
           <div class="card-sub muted small">
             ${escapeHtml(typeLabel(a.type))}
             ${a.phone ? `· ${escapeHtml(a.phone)}` : ""}
+            ${a.subcontractor ? `· Sub Contratista: ${escapeHtml(a.subcontractor)}` : ""}
             ${frequencyLabel(a) ? `· ${escapeHtml(frequencyLabel(a))}` : ""}
+            · Planilla: ${escapeHtml(String(Math.max(0, Math.floor(Number(a.sheetCount || 0) || 0))))}
+            · Certificado: ${escapeHtml(String(Math.max(0, Math.floor(Number(a.certificateCount || 0) || 0))))}
+            · Aviso: ${escapeHtml(mailNoticeLabel(a.mailNotice))}
           </div>
           <div class="card-meta">
             ${upd ? `<span>Actualizado: ${escapeHtml(formatDateTimeAR(upd))}</span>` : `<span class="muted">—</span>`}
@@ -185,6 +248,8 @@ function renderBoard(){
       });
     });
   }
+
+  renderSubcontractorOptions();
 
     enableDragDrop();
 }
@@ -325,6 +390,10 @@ function normalizeStageImport(raw){
     negotiation: 'negotiation',
     'cuenta activa': 'account_active',
     account_active: 'account_active',
+    'cuenta inactiva': 'account_inactive',
+    account_inactive: 'account_inactive',
+    inactivo: 'account_inactive',
+    inactive: 'account_inactive',
     activo: 'account_active',
     active: 'account_active',
     cerrado: 'closed',
@@ -363,6 +432,10 @@ async function importAccountsFromCsv(file){
         name: accountName,
         type: normalizeType(row.account_type),
         phone: String(row.phone || '').trim(),
+        subcontractor: String(row.subcontractor || '').trim(),
+        sheetCount: Math.max(0, Math.floor(Number(row.sheet_count || 0) || 0)),
+        certificateCount: Math.max(0, Math.floor(Number(row.certificate_count || 0) || 0)),
+        mailNotice: normalizeMailNotice(row.mail_notice),
         notes: String(row.notes || '').trim(),
         stage,
         status: stageToAccountStatus(stage),
@@ -377,6 +450,7 @@ async function importAccountsFromCsv(file){
 
     const siteName = String(row.site_name || '').trim();
     const siteAddress = String(row.site_address || '').trim();
+    if (account.status !== 'active') continue;
     if (!siteName) continue;
 
     const key = `${account.id}::${siteName.toLowerCase()}::${siteAddress.toLowerCase()}`;
@@ -423,6 +497,10 @@ function wireModal(){
       visitFrequencyPeriod: $("a_visitPeriod").value,
       stage,
       phone: $("a_phone").value.trim(),
+      subcontractor: $("a_subcontractor").value.trim(),
+      sheetCount: Math.max(0, Math.floor(Number($("a_sheetCount").value || 0) || 0)),
+      certificateCount: Math.max(0, Math.floor(Number($("a_certificateCount").value || 0) || 0)),
+      mailNotice: normalizeMailNotice($("a_mailNotice").value),
       notes: $("a_notes").value.trim(),
       status: stageToAccountStatus(stage)
     };
@@ -430,6 +508,7 @@ function wireModal(){
     $("btnSave").disabled = true;
     try{
       const id = await create("accounts", data, auth.currentUser);
+      if (data.status === "inactive") await deactivateSitesForAccount(id);
       toast("Cuenta creada");
       closeModal();
       await loadData();
