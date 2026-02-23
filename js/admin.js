@@ -2,6 +2,7 @@ import { loadShell } from "./ui_shell.js";
 import { requireRole, TENANT_ID } from "./auth.js";
 import { db } from "./firebase.js";
 import { $, toast, escapeHtml } from "./utils.js";
+import { createAutoSiteFromAccount } from "./account_site_reprocess.js";
 
 import {
   collection, doc, setDoc, updateDoc, getDocs, query, where, serverTimestamp, addDoc
@@ -77,19 +78,7 @@ async function reprocessAccountsGenerateSites(){
         continue;
       }
 
-      const siteName = String(account.name || "").trim() || `Predio ${account.id.slice(0, 6)}`;
-      await addDoc(collection(db, "tenants", TENANT_ID, "sites"), {
-        accountId: account.id,
-        name: siteName,
-        address: String(account.address || "").trim(),
-        city: String(account.city || "").trim(),
-        notes: String(account.notes || "").trim() || "Generado automáticamente desde Admin (reproceso masivo).",
-        requiresSheet: false,
-        requiresCertificate: false,
-        status: account.status === "inactive" ? "inactive" : "active",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
+      await createAutoSiteFromAccount(account, null);
 
       created += 1;
       siteAccountIds.add(account.id);

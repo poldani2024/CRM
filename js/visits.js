@@ -4,6 +4,9 @@ import { auth } from "./firebase.js";
 import { list, create, update, remove } from "./data_access.js";
 import { escapeHtml, $, toast } from "./utils.js";
 import { createWorkOrder } from "./work_orders_service.js";
+import { ensureSiteForAccount } from "./account_site_reprocess.js";
+
+const MISSING_SITE_PREFIX = "__missing_site__:";
 
 const PERIOD_DAYS = {
   day: 1,
@@ -235,13 +238,36 @@ async function saveVisitStatus(status){
   if (!activeMenuCell) return;
 
   const { siteId, accountId, dKey } = activeMenuCell;
+  let finalSiteId = siteId;
+
+  if (String(siteId || "").startsWith(MISSING_SITE_PREFIX)){
+    const account = ACCOUNTS.find(a=>a.id === accountId);
+    if (!account){
+      hideContextMenu();
+      return toast("No se encontró la cuenta para autogenerar predio");
+    }
+
+    const ok = window.confirm("Esta cuenta no tiene predio. ¿Querés autogenerar el predio ahora para registrar la visita?");
+    if (!ok){
+      hideContextMenu();
+      return toast("Operación cancelada");
+    }
+
+    const generatedSite = await ensureSiteForAccount(account, auth.currentUser);
+    if (!generatedSite?.id){
+      hideContextMenu();
+      return toast("No se pudo generar el predio automáticamente");
+    }
+    finalSiteId = generatedSite.id;
+  }
+
   const existing = VISITS.find(v=>{
     const dt = parseVisitDate(v);
-    return dt && v.siteId === siteId && dateKey(dt) === dKey;
+    return dt && v.siteId === finalSiteId && dateKey(dt) === dKey;
   });
 
   const payload = {
-    siteId,
+    siteId: finalSiteId,
     accountId,
     plannedDate: dKey,
     status
@@ -485,6 +511,23 @@ function render(){
       return (a.site.name || "").localeCompare(b.site.name || "");
     });
 
+  if (selectedAccountId && !rows.length){
+    const account = accountsById.get(selectedAccountId);
+    if (account){
+      rows.push({
+        account,
+        site: {
+          id: `${MISSING_SITE_PREFIX}${account.id}`,
+          accountId: account.id,
+          name: "Sin predio generado",
+          address: "",
+          city: "",
+          isVirtualMissing: true
+        }
+      });
+    }
+  }
+
   const rowIds = new Set(rows.map(r=>r.site.id));
   bulkSelectedSiteIds = new Set([...bulkSelectedSiteIds].filter(id=>rowIds.has(id)));
 
@@ -572,9 +615,9 @@ function render(){
             const estimatedDates = new Set(planningDatesForSite(account, endDate));
             return `
               <tr>
-                <td class="sticky-col col-select"><input type="checkbox" class="visit-row-check" data-site-select="${escapeHtml(site.id)}" ${bulkSelectedSiteIds.has(site.id)?"checked":""} /></td>
+                <td class="sticky-col col-select"><input type="checkbox" class="visit-row-check" data-site-select="${escapeHtml(site.id)}" ${site.isVirtualMissing?"disabled":""} ${bulkSelectedSiteIds.has(site.id)?"checked":""} /></td>
                 <td class="sticky-col col-account">${escapeHtml(account.name || "—")}</td>
-                <td class="sticky-col col-site">${escapeHtml(site.name || "—")}</td>
+                <td class="sticky-col col-site">${site.isVirtualMissing ? "⚠ " : ""}${escapeHtml(site.name || "—")}</td>
                 <td class="sticky-col col-address">${escapeHtml(site.address || "—")}</td>
                 <td class="sticky-col col-city">${escapeHtml(site.city || "—")}</td>
                 ${dateCols.map(d=>{
