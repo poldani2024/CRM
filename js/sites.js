@@ -14,6 +14,126 @@ let ACCOUNTS = [];
 let accountIdPrefill = null;
 let editingSiteId = null;
 
+function parseCsv(text){
+  const rows = [];
+  let row = [];
+  let current = "";
+  let i = 0;
+  let inQuotes = false;
+
+  while (i < text.length){
+    const ch = text[i];
+    if (inQuotes){
+      if (ch === '"'){
+        if (text[i + 1] === '"'){
+          current += '"';
+          i += 2;
+          continue;
+        }
+        inQuotes = false;
+        i += 1;
+        continue;
+      }
+      current += ch;
+      i += 1;
+      continue;
+    }
+    if (ch === '"'){
+      inQuotes = true;
+      i += 1;
+      continue;
+    }
+    if (ch === '\n'){
+      row.push(current);
+      rows.push(row);
+      row = [];
+      current = "";
+      i += 1;
+      continue;
+    }
+    if (ch === '\r'){
+      i += 1;
+      continue;
+    }
+    current += ch;
+    i += 1;
+  }
+  if (current.length || row.length){
+    row.push(current);
+    rows.push(row);
+  }
+  if (!rows.length) return [];
+  const delimiter = (rows[0].join('').match(/;/g) || []).length > (rows[0].join('').match(/,/g) || []).length ? ';' : ',';
+  const splitRows = rows.map(r=> r.length === 1 ? r[0].split(delimiter) : r);
+  const headers = splitRows[0].map(h => String(h || '').trim());
+  return splitRows.slice(1)
+    .filter(r => r.some(c => String(c || '').trim()))
+    .map(r => {
+      const obj = {};
+      headers.forEach((h, idx)=>{ obj[h] = String(r[idx] || '').trim(); });
+      return obj;
+    });
+}
+
+function parseBool(raw){
+  const v = String(raw || "").trim().toLowerCase();
+  return ["1", "true", "si", "sí", "x", "yes"].includes(v);
+}
+
+function normalizeStatus(raw){
+  const v = String(raw || "").trim().toLowerCase();
+  if (!v) return "active";
+  if (["inactive", "inactivo", "baja", "0", "false"].includes(v)) return "inactive";
+  return "active";
+}
+
+async function importSitesFromCsv(file){
+  const text = await file.text();
+  const rows = parseCsv(text);
+  if (!rows.length) return toast("CSV vacío");
+
+  const required = ["account_name", "site_name"];
+  const missing = required.filter(k => !(k in rows[0]));
+  if (missing.length) return toast(`Faltan columnas: ${missing.join(", ")}`);
+
+  const accountByName = new Map(ACCOUNTS.map(a=>[String(a.name || "").trim().toLowerCase(), a]));
+  const existingSites = await list("sites", { order:null, max:3000 });
+  const keySet = new Set(existingSites.map(s=>`${s.accountId || ""}::${String(s.name || "").trim().toLowerCase()}::${String(s.address || "").trim().toLowerCase()}`));
+
+  let created = 0;
+  let skipped = 0;
+
+  for (const row of rows){
+    const accountName = String(row.account_name || "").trim();
+    const siteName = String(row.site_name || "").trim();
+    const address = String(row.site_address || row.address || "").trim();
+    if (!accountName || !siteName){ skipped += 1; continue; }
+
+    const account = accountByName.get(accountName.toLowerCase());
+    if (!account){ skipped += 1; continue; }
+
+    const key = `${account.id}::${siteName.toLowerCase()}::${address.toLowerCase()}`;
+    if (keySet.has(key)){ skipped += 1; continue; }
+
+    await create("sites", {
+      accountId: account.id,
+      name: siteName,
+      address,
+      city: String(row.site_city || row.city || "").trim(),
+      notes: String(row.site_notes || row.notes || "").trim(),
+      requiresSheet: parseBool(row.requires_sheet),
+      requiresCertificate: parseBool(row.requires_certificate),
+      status: normalizeStatus(row.status)
+    }, auth.currentUser);
+    keySet.add(key);
+    created += 1;
+  }
+
+  toast(`Importación predios OK · Creados: ${created} · Omitidos: ${skipped}`);
+  await loadData();
+  render();
+}
+
 function openCreateModal(){
   editingSiteId = null;
   $("modalTitle").textContent = "Nuevo predio";
@@ -61,7 +181,11 @@ function render(){
     <div class="panel" style="padding:14px;">
       <div class="row" style="justify-content:space-between; flex-wrap:wrap; gap:10px;">
         <div class="muted">Total: ${SITES.length}</div>
-        <button class="btn btn-primary" id="btnNew">+ Nuevo predio</button>
+        <div class="row" style="gap:8px;">
+          <input id="sitesImportFile" type="file" accept=".csv,text/csv" style="display:none;" />
+          <button class="btn" id="btnImportSites">Importar CSV</button>
+          <button class="btn btn-primary" id="btnNew" ${ACCOUNTS.length ? "" : "disabled"}>+ Nuevo predio</button>
+        </div>
       </div>
     </div>
 
@@ -159,7 +283,22 @@ function render(){
     </div>
   `;
 
-  $("btnNew").addEventListener("click", openCreateModal);
+  $("btnNew").addEventListener("click", ()=>{
+    if (!ACCOUNTS.length) return toast("No hay cuentas activas disponibles");
+    openCreateModal();
+  });
+  $("btnImportSites").addEventListener("click", ()=> $("sitesImportFile").click());
+  $("sitesImportFile").addEventListener("change", async ()=>{
+    const file = $("sitesImportFile").files?.[0];
+    $("sitesImportFile").value = "";
+    if (!file) return;
+    try{
+      await importSitesFromCsv(file);
+    } catch(err){
+      console.error(err);
+      toast(err?.message || "Error importando predios");
+    }
+  });
   $("btnCloseModal").addEventListener("click", closeModal);
   $("btnCancel").addEventListener("click", closeModal);
   $("btnSave").addEventListener("click", saveSite);
@@ -193,6 +332,7 @@ async function saveSite(){
 
   if (!data.name) return toast("Falta el nombre del predio");
   if (!data.accountId) return toast("Falta seleccionar una cuenta");
+  if (!ACCOUNTS.some(a=>a.id === data.accountId)) return toast("La cuenta seleccionada está inactiva");
 
   $("btnSave").disabled = true;
   try{
