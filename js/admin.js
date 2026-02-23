@@ -4,7 +4,7 @@ import { db } from "./firebase.js";
 import { $, toast, escapeHtml } from "./utils.js";
 
 import {
-  collection, doc, setDoc, updateDoc, getDocs, query, where, serverTimestamp
+  collection, doc, setDoc, updateDoc, getDocs, query, where, serverTimestamp, addDoc
 } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
 
 async function loadPendingRequests(){
@@ -54,6 +54,51 @@ async function saveSettings(){
   } catch(e){
     console.error(e);
     toast(e?.message || "Error guardando settings");
+  }
+}
+
+async function reprocessAccountsGenerateSites(){
+  const ok = window.confirm("Esto creará un predio automático para cada cuenta que no tenga ninguno. ¿Continuar?");
+  if (!ok) return;
+
+  try{
+    const accountsSnap = await getDocs(collection(db, "tenants", TENANT_ID, "accounts"));
+    const sitesSnap = await getDocs(collection(db, "tenants", TENANT_ID, "sites"));
+
+    const accounts = accountsSnap.docs.map(d=>({ id: d.id, ...d.data() }));
+    const siteAccountIds = new Set(sitesSnap.docs.map(d=> String(d.data()?.accountId || "")).filter(Boolean));
+
+    let created = 0;
+    let skipped = 0;
+
+    for (const account of accounts){
+      if (siteAccountIds.has(account.id)){
+        skipped += 1;
+        continue;
+      }
+
+      const siteName = String(account.name || "").trim() || `Predio ${account.id.slice(0, 6)}`;
+      await addDoc(collection(db, "tenants", TENANT_ID, "sites"), {
+        accountId: account.id,
+        name: siteName,
+        address: String(account.address || "").trim(),
+        city: String(account.city || "").trim(),
+        notes: String(account.notes || "").trim() || "Generado automáticamente desde Admin (reproceso masivo).",
+        requiresSheet: false,
+        requiresCertificate: false,
+        status: account.status === "inactive" ? "inactive" : "active",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+
+      created += 1;
+      siteAccountIds.add(account.id);
+    }
+
+    toast(`Reproceso finalizado · Predios creados: ${created} · Cuentas con predio previo: ${skipped}`);
+  } catch(e){
+    console.error(e);
+    toast(e?.message || "Error en reproceso de cuentas");
   }
 }
 
@@ -110,6 +155,18 @@ async function init(){
 
     <div class="spacer"></div>
 
+    <div class="panel" style="padding:14px; border-color:#e3d8b7; background:#fffdf4;">
+      <div class="row" style="justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:flex-start;">
+        <div>
+          <div style="font-weight:800;">Herramientas de reproceso</div>
+          <div class="muted small">Uso eventual de admin. Si una cuenta no tiene predios, crea uno automáticamente a partir de los datos de la cuenta.</div>
+        </div>
+        <button class="btn" id="btnReprocessAccountsSites">Reprocesar Accounts sin Predio</button>
+      </div>
+    </div>
+
+    <div class="spacer"></div>
+
     <div class="panel" style="padding:14px;">
       <div class="row" style="justify-content:space-between; flex-wrap:wrap;">
         <div>
@@ -137,6 +194,15 @@ async function init(){
   `;
 
   $("btnSaveSettings").addEventListener("click", saveSettings);
+  $("btnReprocessAccountsSites").addEventListener("click", async ()=>{
+    const btn = $("btnReprocessAccountsSites");
+    btn.disabled = true;
+    try{
+      await reprocessAccountsGenerateSites();
+    } finally{
+      btn.disabled = false;
+    }
+  });
 
   wireApproveButtons();
 }
