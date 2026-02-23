@@ -4,7 +4,7 @@
 
 Encabezado exacto esperado (fila 1):
 
-`account_name,account_type,visit_frequency_per_month,stage,phone,sheet_count,certificate_count,mail_notice,notes,site_name,site_address,site_city,site_notes`
+`account_name,account_type,visit_frequency_per_month,stage,phone,subcontractor,sheet_count,certificate_count,mail_notice,notes,site_name,site_address,site_city,site_notes`
 
 Columnas soportadas:
 
@@ -13,6 +13,7 @@ Columnas soportadas:
 - `visit_frequency_per_month` (número, default `1`)
 - `stage` (`prospect`, `offer_sent`, `negotiation`, `account_active`, `account_inactive`, `closed`)
 - `phone`
+- `subcontractor`
 - `sheet_count` (entero)
 - `certificate_count` (entero)
 - `mail_notice` (`mail`, `cd`, `sicop`, `cetronic`, vacío/sin definir)

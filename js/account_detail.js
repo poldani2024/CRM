@@ -10,9 +10,18 @@ function getParam(name){
 }
 
 let ACCOUNT = null;
+let ACCOUNT_OPTIONS = [];
 let CONTACTS = [];
 let SITES = [];
 let activeTab = "summary";
+
+function subcontractorOptions(){
+  return Array.from(new Set(
+    ACCOUNT_OPTIONS
+      .map(a=> String(a?.subcontractor || "").trim())
+      .filter(Boolean)
+  )).sort((a,b)=> a.localeCompare(b));
+}
 
 function render(){
   const c = document.getElementById("pageContent");
@@ -114,6 +123,14 @@ function render(){
           </div>
 
           <div class="field">
+            <label>Sub Contratista</label>
+            <input id="e_subcontractor" list="e_subcontractor_options" placeholder="Seleccionar o escribir..." />
+            <datalist id="e_subcontractor_options">
+              ${subcontractorOptions().map(v=>`<option value="${escapeHtml(v)}"></option>`).join("")}
+            </datalist>
+          </div>
+
+          <div class="field">
             <label>Cantidad Planilla</label>
             <input id="e_sheetCount" type="number" min="0" step="1" />
           </div>
@@ -184,6 +201,10 @@ function renderTab(){
           <div>
             <div class="muted small">Tipo de cliente</div>
             <div style="font-weight:700;">${escapeHtml(typeLabel(ACCOUNT.type))}</div>
+          </div>
+          <div>
+            <div class="muted small">Sub Contratista</div>
+            <div style="font-weight:700;">${escapeHtml(ACCOUNT.subcontractor || "—")}</div>
           </div>
           <div>
             <div class="muted small">Frecuencia de visita</div>
@@ -351,6 +372,7 @@ function openEdit(){
   $("e_visitPeriod").value = ACCOUNT.visitFrequencyPeriod || "week";
   $("e_stage").value = normalizeStage(ACCOUNT.stage);
   $("e_phone").value = ACCOUNT.phone || "";
+  $("e_subcontractor").value = ACCOUNT.subcontractor || "";
   $("e_sheetCount").value = String(Math.max(0, Math.floor(Number(ACCOUNT.sheetCount || 0) || 0)));
   $("e_certificateCount").value = String(Math.max(0, Math.floor(Number(ACCOUNT.certificateCount || 0) || 0)));
   $("e_mailNotice").value = normalizeMailNotice(ACCOUNT.mailNotice);
@@ -369,6 +391,7 @@ async function saveEdit(){
     stage,
     status: stageToAccountStatus(stage),
     phone: $("e_phone").value.trim(),
+    subcontractor: $("e_subcontractor").value.trim(),
     sheetCount: Math.max(0, Math.floor(Number($("e_sheetCount").value || 0) || 0)),
     certificateCount: Math.max(0, Math.floor(Number($("e_certificateCount").value || 0) || 0)),
     mailNotice: normalizeMailNotice($("e_mailNotice").value),
@@ -398,6 +421,10 @@ async function init(){
   const id = getParam("id");
   ACCOUNT = id ? await getById("accounts", id) : null;
   if (ACCOUNT){
+    ACCOUNT_OPTIONS = await list("accounts", {
+      order: { field:"name", dir:"asc" },
+      max: 1000
+    });
     CONTACTS = await list("contacts", {
       filters: [{ field:"accountId", op:"==", value: ACCOUNT.id }],
       order: { field:"updatedAt", dir:"desc" },

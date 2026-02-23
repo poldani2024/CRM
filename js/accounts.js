@@ -49,6 +49,22 @@ function mailNoticeLabel(raw){
   return "Sin definir";
 }
 
+function subcontractorOptions(){
+  return Array.from(new Set(
+    ACCOUNTS
+      .map(a=> String(a?.subcontractor || "").trim())
+      .filter(Boolean)
+  )).sort((a,b)=> a.localeCompare(b));
+}
+
+function renderSubcontractorOptions(){
+  const dl = $("a_subcontractor_options");
+  if (!dl) return;
+  dl.innerHTML = subcontractorOptions()
+    .map(v=> `<option value="${escapeHtml(v)}"></option>`)
+    .join("");
+}
+
 async function deactivateSitesForAccount(accountId){
   const sites = await list("sites", {
     filters: [
@@ -72,6 +88,7 @@ function closeModal(){
   $("a_name").value = "";
   $("a_phone").value = "";
   $("a_notes").value = "";
+  $("a_subcontractor").value = "";
   $("a_sheetCount").value = "0";
   $("a_certificateCount").value = "0";
   $("a_mailNotice").value = "";
@@ -210,6 +227,7 @@ function renderBoard(){
           <div class="card-sub muted small">
             ${escapeHtml(typeLabel(a.type))}
             ${a.phone ? `· ${escapeHtml(a.phone)}` : ""}
+            ${a.subcontractor ? `· Sub Contratista: ${escapeHtml(a.subcontractor)}` : ""}
             ${frequencyLabel(a) ? `· ${escapeHtml(frequencyLabel(a))}` : ""}
             · Planilla: ${escapeHtml(String(Math.max(0, Math.floor(Number(a.sheetCount || 0) || 0))))}
             · Certificado: ${escapeHtml(String(Math.max(0, Math.floor(Number(a.certificateCount || 0) || 0))))}
@@ -230,6 +248,8 @@ function renderBoard(){
       });
     });
   }
+
+  renderSubcontractorOptions();
 
     enableDragDrop();
 }
@@ -412,6 +432,7 @@ async function importAccountsFromCsv(file){
         name: accountName,
         type: normalizeType(row.account_type),
         phone: String(row.phone || '').trim(),
+        subcontractor: String(row.subcontractor || '').trim(),
         sheetCount: Math.max(0, Math.floor(Number(row.sheet_count || 0) || 0)),
         certificateCount: Math.max(0, Math.floor(Number(row.certificate_count || 0) || 0)),
         mailNotice: normalizeMailNotice(row.mail_notice),
@@ -476,6 +497,7 @@ function wireModal(){
       visitFrequencyPeriod: $("a_visitPeriod").value,
       stage,
       phone: $("a_phone").value.trim(),
+      subcontractor: $("a_subcontractor").value.trim(),
       sheetCount: Math.max(0, Math.floor(Number($("a_sheetCount").value || 0) || 0)),
       certificateCount: Math.max(0, Math.floor(Number($("a_certificateCount").value || 0) || 0)),
       mailNotice: normalizeMailNotice($("a_mailNotice").value),
