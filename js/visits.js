@@ -32,6 +32,7 @@ let selectedSiteId = "";
 let activeMenuCell = null;
 let selectedVisitForOrder = null;
 let bulkSelectedSiteIds = new Set();
+let showPendingOnly = false;
 
 function startOfDay(d){
   const n = new Date(d);
@@ -145,6 +146,18 @@ function buildDateColumns(){
 
 function accountFilteredSites(){
   return SITES.filter(site=> !selectedAccountId || site.accountId === selectedAccountId);
+}
+
+function hasAnyVisitInRange(siteId, dateCols, visitMap){
+  return dateCols.some(d=> visitMap.has(`${siteId}|${dateKey(d)}`));
+}
+
+function hasEstimatedInRange(site, account, endDate, dateCols, visitMap){
+  const estimatedDates = new Set(planningDatesForSite(account, endDate));
+  return dateCols.some(d=>{
+    const dKey = dateKey(d);
+    return estimatedDates.has(dKey) && !visitMap.has(`${site.id}|${dKey}`);
+  });
 }
 
 function hideContextMenu(){
@@ -279,6 +292,21 @@ function employeeLabel(emp){
   return `${emp.lastName || ""}${emp.lastName && emp.firstName ? ", " : ""}${emp.firstName || ""}`.trim() || "—";
 }
 
+function selectedOrderEmployeeIds(){
+  return Array.from(document.querySelectorAll("#order_employees input[type='checkbox']:checked"))
+    .map(input=> String(input.value || ""))
+    .filter(Boolean);
+}
+
+function renderOrderEmployeesChecklist(){
+  return EMPLOYEES.map(emp=>`
+    <label class="employee-check-item">
+      <input type="checkbox" value="${escapeHtml(emp.id)}" />
+      <span>${escapeHtml(employeeLabel(emp))}</span>
+    </label>
+  `).join("");
+}
+
 function openAssignOrderModal(visitId){
   const visit = VISITS.find(v=>v.id === visitId);
   if (!visit) return toast("No se encontró la visita confirmada");
@@ -291,7 +319,8 @@ function openAssignOrderModal(visitId){
   const site = SITES.find(s=>s.id === visit.siteId);
   $("order_visitAccount").textContent = account?.name || "—";
   $("order_visitSite").textContent = site?.name || "—";
-  $("order_employee").innerHTML = `<option value="">Seleccionar</option>${EMPLOYEES.map(emp=>`<option value="${escapeHtml(emp.id)}">${escapeHtml(employeeLabel(emp))}</option>`).join("")}`;
+  $("order_employees").innerHTML = renderOrderEmployeesChecklist();
+  $("order_schedule").value = "";
   $("order_observations").value = "";
   $("orderModalBackdrop").style.display = "flex";
 }
@@ -303,10 +332,12 @@ function closeAssignOrderModal(){
 
 async function createOrderFromVisit(){
   if (!selectedVisitForOrder) return;
-  const employeeId = $("order_employee").value;
-  if (!employeeId) return toast("Seleccioná un empleado");
+  const employeeIds = selectedOrderEmployeeIds();
+  if (!employeeIds.length) return toast("Seleccioná al menos un empleado");
 
-  const employee = EMPLOYEES.find(e=>e.id === employeeId);
+  const employees = employeeIds
+    .map(id=> EMPLOYEES.find(e=>e.id === id))
+    .filter(Boolean);
   const account = ACCOUNTS.find(a=>a.id === selectedVisitForOrder.accountId);
   const site = SITES.find(s=>s.id === selectedVisitForOrder.siteId);
 
@@ -316,7 +347,8 @@ async function createOrderFromVisit(){
       visitId: selectedVisitForOrder.id,
       account,
       site,
-      employee,
+      employees,
+      schedule: $("order_schedule").value,
       observations: $("order_observations").value,
       generatedBy: auth.currentUser
     });
@@ -440,6 +472,12 @@ function render(){
   const rows = filteredSites
     .map(site=>({ site, account: accountsById.get(site.accountId) }))
     .filter(row=>row.account)
+    .filter(row=>{
+      if (!showPendingOnly) return true;
+      const hasVisit = hasAnyVisitInRange(row.site.id, dateCols, visitMap);
+      const hasEstimated = hasEstimatedInRange(row.site, row.account, endDate, dateCols, visitMap);
+      return !hasVisit && hasEstimated;
+    })
     .filter(row=> !selectedSiteId || row.site.id === selectedSiteId)
     .sort((a,b)=>{
       const an = (a.account.name || "").localeCompare(b.account.name || "");
@@ -493,6 +531,11 @@ function render(){
         <button class="btn btn-primary" id="btnRefreshVisits">Actualizar vista</button>
 
         <button class="btn" id="btnBulkPlan" ${bulkSelectedSiteIds.size?"":"disabled"}>Planificar selección</button>
+
+        <label class="row" style="gap:8px; align-items:center; margin-left:6px;">
+          <input type="checkbox" id="v_pendingOnly" ${showPendingOnly?"checked":""} />
+          <span class="small">Pendientes de programar</span>
+        </label>
 
         <div class="muted small">Predios planificados: ${rows.length} · Seleccionados: <span id="bulkSelectedCount">0</span> · Hasta ${escapeHtml(endDate.toLocaleDateString("es-AR"))}</div>
       </div>
@@ -578,7 +621,8 @@ function render(){
         <div class="field"><label>Fecha visita</label><div id="order_visitDate" class="muted">—</div></div>
         <div class="field"><label>Empresa</label><div id="order_visitAccount" class="muted">—</div></div>
         <div class="field"><label>Predio</label><div id="order_visitSite" class="muted">—</div></div>
-        <div class="field"><label>Empleado asignado</label><select id="order_employee"></select></div>
+        <div class="field"><label>Empleados asignados</label><div id="order_employees" class="employee-checklist"></div></div>
+        <div class="field"><label>Horario</label><input id="order_schedule" type="time" /></div>
         <div class="field"><label>Observaciones</label><textarea id="order_observations"></textarea></div>
         <div class="modal-actions">
           <button class="btn" id="btnCancelOrderModal">Cancelar</button>
@@ -601,12 +645,20 @@ function render(){
     render();
   });
 
+  $("v_pendingOnly")?.addEventListener("change", ()=>{
+    showPendingOnly = !!$("v_pendingOnly").checked;
+    selectedSiteId = "";
+    hideContextMenu();
+    render();
+  });
+
   $("btnRefreshVisits").addEventListener("click", ()=>{
     const dt = $("v_start").value;
     startDate = dt ? startOfDay(new Date(`${dt}T00:00:00`)) : startOfDay(new Date());
     rangeDays = Number($("v_horizon").value || 30);
     selectedAccountId = $("v_accountFilter").value;
     selectedSiteId = $("v_siteFilter").value;
+    showPendingOnly = !!$("v_pendingOnly")?.checked;
     hideContextMenu();
     render();
   });
