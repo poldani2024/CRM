@@ -562,6 +562,8 @@ function render(){
             <th class="sticky-col col-select"><input type="checkbox" id="bulkSelectAll" title="Seleccionar todo" /></th>
             <th class="sticky-col col-account">Cuenta</th>
             <th class="sticky-col col-site">Predio</th>
+            <th class="sticky-col col-address">Domicilio</th>
+            <th class="sticky-col col-city">Ciudad</th>
             ${dateCols.map(d=>`<th class="col-date">${fmtDate(d)}</th>`).join("")}
           </tr>
         </thead>
@@ -573,6 +575,8 @@ function render(){
                 <td class="sticky-col col-select"><input type="checkbox" class="visit-row-check" data-site-select="${escapeHtml(site.id)}" ${bulkSelectedSiteIds.has(site.id)?"checked":""} /></td>
                 <td class="sticky-col col-account">${escapeHtml(account.name || "—")}</td>
                 <td class="sticky-col col-site">${escapeHtml(site.name || "—")}</td>
+                <td class="sticky-col col-address">${escapeHtml(site.address || "—")}</td>
+                <td class="sticky-col col-city">${escapeHtml(site.city || "—")}</td>
                 ${dateCols.map(d=>{
                   const dKey = dateKey(d);
                   const existingVisit = visitMap.get(`${site.id}|${dKey}`);
