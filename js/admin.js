@@ -5,7 +5,7 @@ import { $, toast, escapeHtml } from "./utils.js";
 import { createAutoSiteFromAccount } from "./account_site_reprocess.js";
 
 import {
-  collection, doc, setDoc, updateDoc, getDocs, query, where, serverTimestamp, addDoc
+  collection, doc, setDoc, updateDoc, getDoc, getDocs, query, where, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
 
 async function loadPendingRequests(){
@@ -55,6 +55,20 @@ async function saveSettings(){
   } catch(e){
     console.error(e);
     toast(e?.message || "Error guardando settings");
+  }
+}
+
+async function loadSettingsIntoForm(){
+  try{
+    const ref = doc(db, "tenants", TENANT_ID, "settings", "main");
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return;
+    const data = snap.data() || {};
+    $("s_companyName").value = String(data.companyName || "");
+    $("s_companySub").value = String(data.companySub || "");
+    $("s_logoPath").value = String(data.logoPath || "");
+  } catch(e){
+    console.warn("No se pudo cargar settings/main en Admin", e);
   }
 }
 
@@ -194,6 +208,7 @@ async function init(){
   });
 
   wireApproveButtons();
+  await loadSettingsIntoForm();
 }
 
 init();
