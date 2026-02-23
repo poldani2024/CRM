@@ -5,7 +5,7 @@ import { $, toast, escapeHtml } from "./utils.js";
 import { createAutoSiteFromAccount } from "./account_site_reprocess.js";
 
 import {
-  collection, doc, setDoc, updateDoc, getDocs, query, where, serverTimestamp
+  collection, doc, setDoc, updateDoc, getDocs, query, where, serverTimestamp, addDoc
 } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
 
 async function loadPendingRequests(){
