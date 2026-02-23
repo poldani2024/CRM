@@ -713,6 +713,8 @@ async function loadData(){
     order: { field:"name", dir:"asc" },
     max: 1000
   });
+  const activeAccountIds = new Set(ACCOUNTS.map(a=>a.id));
+  SITES = SITES.filter(site=> activeAccountIds.has(site.accountId));
 
   try{
     VISITS = await list("visits", {

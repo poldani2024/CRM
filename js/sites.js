@@ -61,7 +61,7 @@ function render(){
     <div class="panel" style="padding:14px;">
       <div class="row" style="justify-content:space-between; flex-wrap:wrap; gap:10px;">
         <div class="muted">Total: ${SITES.length}</div>
-        <button class="btn btn-primary" id="btnNew">+ Nuevo predio</button>
+        <button class="btn btn-primary" id="btnNew" ${ACCOUNTS.length ? "" : "disabled"}>+ Nuevo predio</button>
       </div>
     </div>
 
@@ -159,7 +159,10 @@ function render(){
     </div>
   `;
 
-  $("btnNew").addEventListener("click", openCreateModal);
+  $("btnNew").addEventListener("click", ()=>{
+    if (!ACCOUNTS.length) return toast("No hay cuentas activas disponibles");
+    openCreateModal();
+  });
   $("btnCloseModal").addEventListener("click", closeModal);
   $("btnCancel").addEventListener("click", closeModal);
   $("btnSave").addEventListener("click", saveSite);
@@ -193,6 +196,7 @@ async function saveSite(){
 
   if (!data.name) return toast("Falta el nombre del predio");
   if (!data.accountId) return toast("Falta seleccionar una cuenta");
+  if (!ACCOUNTS.some(a=>a.id === data.accountId)) return toast("La cuenta seleccionada está inactiva");
 
   $("btnSave").disabled = true;
   try{

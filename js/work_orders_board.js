@@ -519,9 +519,17 @@ async function loadData(){
   });
 
   SITES = await list("sites", {
+    filters: [{ field:"status", op:"==", value:"active" }],
     order: { field:"name", dir:"asc" },
     max: 2000
   });
+  const accounts = await list("accounts", {
+    filters: [{ field:"status", op:"==", value:"active" }],
+    order: { field:"name", dir:"asc" },
+    max: 1000
+  });
+  const activeAccountIds = new Set(accounts.map(a=>a.id));
+  SITES = SITES.filter(site=> activeAccountIds.has(site.accountId));
 
   WORK_ORDERS = await list("work_orders", {
     order: { field:"createdAt", dir:"desc" },

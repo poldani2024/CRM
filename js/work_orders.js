@@ -429,6 +429,8 @@ async function cancelOrder(orderId){
 async function loadData(){
   ACCOUNTS = await list("accounts", { filters:[{ field:"status", op:"==", value:"active" }], order:{ field:"name", dir:"asc" }, max:500 });
   SITES = await list("sites", { filters:[{ field:"status", op:"==", value:"active" }], order:{ field:"name", dir:"asc" }, max:1000 });
+  const activeAccountIds = new Set(ACCOUNTS.map(a=>a.id));
+  SITES = SITES.filter(site=> activeAccountIds.has(site.accountId));
   EMPLOYEES = await list("employees", { filters:[{ field:"status", op:"==", value:"active" }], order:{ field:"lastName", dir:"asc" }, max:500 });
   VISITS = await list("visits", { order:null, max:4000 });
   WORK_ORDERS = await list("work_orders", { order:{ field:"createdAt", dir:"desc" }, max:2000 });

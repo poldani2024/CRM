@@ -255,9 +255,11 @@ async function loadData(){
   [WORK_ORDERS, EMPLOYEES, SITES, ACCOUNTS] = await Promise.all([
     list("work_orders", { order:{ field:"createdAt", dir:"desc" }, max:3000 }),
     list("employees", { filters:[{ field:"status", op:"==", value:"active" }], order:{ field:"lastName", dir:"asc" }, max:600 }),
-    list("sites", { order:{ field:"name", dir:"asc" }, max:2000 }),
-    list("accounts", { order:{ field:"name", dir:"asc" }, max:1000 })
+    list("sites", { filters:[{ field:"status", op:"==", value:"active" }], order:{ field:"name", dir:"asc" }, max:2000 }),
+    list("accounts", { filters:[{ field:"status", op:"==", value:"active" }], order:{ field:"name", dir:"asc" }, max:1000 })
   ]);
+  const activeAccountIds = new Set(ACCOUNTS.map(a=>a.id));
+  SITES = SITES.filter(site=> activeAccountIds.has(site.accountId));
 }
 
 async function init(){
