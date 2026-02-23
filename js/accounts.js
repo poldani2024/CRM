@@ -9,6 +9,7 @@ const STAGES = [
   { key:"offer_sent", label:"Oferta enviada" },
   { key:"negotiation", label:"Negociación" },
   { key:"account_active", label:"Cuenta activa" },
+  { key:"account_inactive", label:"Cuenta inactiva" },
   { key:"closed", label:"Cerrado" }
 ];
 
@@ -19,12 +20,27 @@ function normalizeStage(stage){
   const raw = String(stage || "");
   if (raw === "contacted") return "prospect";
   if (raw === "active") return "account_active";
+  if (raw === "inactive") return "account_inactive";
   if (STAGES.some(s=>s.key === raw)) return raw;
   return "prospect";
 }
 
 function stageToAccountStatus(stage){
   return stage === "account_active" ? "active" : "inactive";
+}
+
+async function deactivateSitesForAccount(accountId){
+  const sites = await list("sites", {
+    filters: [
+      { field:"accountId", op:"==", value: accountId },
+      { field:"status", op:"==", value:"active" }
+    ],
+    order: null,
+    max: 2000
+  });
+  for (const site of sites){
+    await update("sites", site.id, { status:"inactive" }, auth.currentUser);
+  }
 }
 
 
@@ -36,6 +52,9 @@ function closeModal(){
   $("a_name").value = "";
   $("a_phone").value = "";
   $("a_notes").value = "";
+  $("a_sheetCount").value = "0";
+  $("a_certificateCount").value = "0";
+  $("a_mailNotice").checked = false;
   $("a_type").value = "bank";
   $("a_visitUnit").value = "1";
   $("a_visitPeriod").value = "week";
@@ -97,6 +116,9 @@ function enableDragDrop(){
           stage: newStage,
           status: stageToAccountStatus(newStage)
         }, auth.currentUser);
+        if (stageToAccountStatus(newStage) === "inactive"){
+          await deactivateSitesForAccount(draggedId);
+        }
         toast("Movido ✅");
 
         await loadData();
@@ -169,6 +191,9 @@ function renderBoard(){
             ${escapeHtml(typeLabel(a.type))}
             ${a.phone ? `· ${escapeHtml(a.phone)}` : ""}
             ${frequencyLabel(a) ? `· ${escapeHtml(frequencyLabel(a))}` : ""}
+            · Planilla: ${escapeHtml(String(Math.max(0, Math.floor(Number(a.sheetCount || 0) || 0))))}
+            · Certificado: ${escapeHtml(String(Math.max(0, Math.floor(Number(a.certificateCount || 0) || 0))))}
+            ${a.mailNotice ? "· Aviso x Mail" : ""}
           </div>
           <div class="card-meta">
             ${upd ? `<span>Actualizado: ${escapeHtml(formatDateTimeAR(upd))}</span>` : `<span class="muted">—</span>`}
@@ -325,6 +350,10 @@ function normalizeStageImport(raw){
     negotiation: 'negotiation',
     'cuenta activa': 'account_active',
     account_active: 'account_active',
+    'cuenta inactiva': 'account_inactive',
+    account_inactive: 'account_inactive',
+    inactivo: 'account_inactive',
+    inactive: 'account_inactive',
     activo: 'account_active',
     active: 'account_active',
     cerrado: 'closed',
@@ -363,6 +392,9 @@ async function importAccountsFromCsv(file){
         name: accountName,
         type: normalizeType(row.account_type),
         phone: String(row.phone || '').trim(),
+        sheetCount: Math.max(0, Math.floor(Number(row.sheet_count || 0) || 0)),
+        certificateCount: Math.max(0, Math.floor(Number(row.certificate_count || 0) || 0)),
+        mailNotice: ["1", "true", "si", "sí", "x", "yes"].includes(String(row.mail_notice || "").trim().toLowerCase()),
         notes: String(row.notes || '').trim(),
         stage,
         status: stageToAccountStatus(stage),
@@ -377,6 +409,7 @@ async function importAccountsFromCsv(file){
 
     const siteName = String(row.site_name || '').trim();
     const siteAddress = String(row.site_address || '').trim();
+    if (account.status !== 'active') continue;
     if (!siteName) continue;
 
     const key = `${account.id}::${siteName.toLowerCase()}::${siteAddress.toLowerCase()}`;
@@ -423,6 +456,9 @@ function wireModal(){
       visitFrequencyPeriod: $("a_visitPeriod").value,
       stage,
       phone: $("a_phone").value.trim(),
+      sheetCount: Math.max(0, Math.floor(Number($("a_sheetCount").value || 0) || 0)),
+      certificateCount: Math.max(0, Math.floor(Number($("a_certificateCount").value || 0) || 0)),
+      mailNotice: !!$("a_mailNotice").checked,
       notes: $("a_notes").value.trim(),
       status: stageToAccountStatus(stage)
     };
@@ -430,6 +466,7 @@ function wireModal(){
     $("btnSave").disabled = true;
     try{
       const id = await create("accounts", data, auth.currentUser);
+      if (data.status === "inactive") await deactivateSitesForAccount(id);
       toast("Cuenta creada");
       closeModal();
       await loadData();
