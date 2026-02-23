@@ -79,11 +79,14 @@
           <input id="a_certificateCount" type="number" min="0" step="1" value="0" />
         </div>
 
-        <div class="field" style="display:flex; align-items:flex-end;">
-          <label class="row" style="gap:8px; align-items:center; margin:0;">
-            <input id="a_mailNotice" type="checkbox" />
-            <span>Aviso x Mail</span>
-          </label>
+        <div class="field">
+          <label>Aviso</label>
+          <select id="a_mailNotice">
+            <option value="">Sin definir</option>
+            <option value="mail">Mail</option>
+            <option value="cd">CD</option>
+            <option value="sicop">SICOP</option>
+          </select>
         </div>
 
         <div class="field" style="grid-column:1/-1;">

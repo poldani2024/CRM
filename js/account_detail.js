@@ -123,11 +123,14 @@ function render(){
             <input id="e_certificateCount" type="number" min="0" step="1" />
           </div>
 
-          <div class="field" style="display:flex; align-items:flex-end;">
-            <label class="row" style="gap:8px; align-items:center; margin:0;">
-              <input id="e_mailNotice" type="checkbox" />
-              <span>Aviso x Mail</span>
-            </label>
+          <div class="field">
+            <label>Aviso</label>
+            <select id="e_mailNotice">
+              <option value="">Sin definir</option>
+              <option value="mail">Mail</option>
+              <option value="cd">CD</option>
+              <option value="sicop">SICOP</option>
+            </select>
           </div>
 
           <div class="field" style="grid-column:1/-1;">
@@ -198,8 +201,8 @@ function renderTab(){
             <div style="font-weight:700;">${escapeHtml(String(Math.max(0, Math.floor(Number(ACCOUNT.certificateCount || 0) || 0))))}</div>
           </div>
           <div>
-            <div class="muted small">Aviso x Mail</div>
-            <div style="font-weight:700;">${ACCOUNT.mailNotice ? "Sí" : "No"}</div>
+            <div class="muted small">Aviso</div>
+            <div style="font-weight:700;">${escapeHtml(mailNoticeLabel(ACCOUNT.mailNotice))}</div>
           </div>
           <div style="grid-column:1/-1;">
             <div class="muted small">Comentarios</div>
@@ -294,6 +297,24 @@ function stageToAccountStatus(stage){
   return stage === "account_active" ? "active" : "inactive";
 }
 
+function normalizeMailNotice(raw){
+  const v = String(raw || "").trim().toLowerCase();
+  if (!v) return "";
+  if (["mail", "correo", "email"].includes(v)) return "mail";
+  if (v === "cd") return "cd";
+  if (v === "sicop") return "sicop";
+  if (["1", "true", "si", "sí", "x", "yes"].includes(v)) return "mail";
+  return "";
+}
+
+function mailNoticeLabel(raw){
+  const v = normalizeMailNotice(raw);
+  if (v === "mail") return "Mail";
+  if (v === "cd") return "CD";
+  if (v === "sicop") return "SICOP";
+  return "Sin definir";
+}
+
 async function deactivateSitesForAccount(accountId){
   const activeSites = await list("sites", {
     filters: [
@@ -329,7 +350,7 @@ function openEdit(){
   $("e_phone").value = ACCOUNT.phone || "";
   $("e_sheetCount").value = String(Math.max(0, Math.floor(Number(ACCOUNT.sheetCount || 0) || 0)));
   $("e_certificateCount").value = String(Math.max(0, Math.floor(Number(ACCOUNT.certificateCount || 0) || 0)));
-  $("e_mailNotice").checked = !!ACCOUNT.mailNotice;
+  $("e_mailNotice").value = normalizeMailNotice(ACCOUNT.mailNotice);
   $("e_notes").value = ACCOUNT.notes || "";
 }
 function closeEdit(){
@@ -347,7 +368,7 @@ async function saveEdit(){
     phone: $("e_phone").value.trim(),
     sheetCount: Math.max(0, Math.floor(Number($("e_sheetCount").value || 0) || 0)),
     certificateCount: Math.max(0, Math.floor(Number($("e_certificateCount").value || 0) || 0)),
-    mailNotice: !!$("e_mailNotice").checked,
+    mailNotice: normalizeMailNotice($("e_mailNotice").value),
     notes: $("e_notes").value.trim()
   };
   if (!data.name) return toast("Falta el nombre");

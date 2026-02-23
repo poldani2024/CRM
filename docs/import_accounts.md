@@ -15,7 +15,7 @@ Columnas soportadas:
 - `phone`
 - `sheet_count` (entero)
 - `certificate_count` (entero)
-- `mail_notice` (`true/false`, `1/0`, `si/no`)
+- `mail_notice` (`mail`, `cd`, `sicop`, vacío/sin definir)
 - `notes`
 - `site_name` (si lo completás, crea predio)
 - `site_address`

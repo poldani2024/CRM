@@ -29,6 +29,24 @@ function stageToAccountStatus(stage){
   return stage === "account_active" ? "active" : "inactive";
 }
 
+function normalizeMailNotice(raw){
+  const v = String(raw || "").trim().toLowerCase();
+  if (!v) return "";
+  if (["mail", "correo", "email"].includes(v)) return "mail";
+  if (["cd"].includes(v)) return "cd";
+  if (["sicop"].includes(v)) return "sicop";
+  if (["1", "true", "si", "sí", "x", "yes"].includes(v)) return "mail";
+  return "";
+}
+
+function mailNoticeLabel(raw){
+  const v = normalizeMailNotice(raw);
+  if (v === "mail") return "Mail";
+  if (v === "cd") return "CD";
+  if (v === "sicop") return "SICOP";
+  return "Sin definir";
+}
+
 async function deactivateSitesForAccount(accountId){
   const sites = await list("sites", {
     filters: [
@@ -54,7 +72,7 @@ function closeModal(){
   $("a_notes").value = "";
   $("a_sheetCount").value = "0";
   $("a_certificateCount").value = "0";
-  $("a_mailNotice").checked = false;
+  $("a_mailNotice").value = "";
   $("a_type").value = "bank";
   $("a_visitUnit").value = "1";
   $("a_visitPeriod").value = "week";
@@ -193,7 +211,7 @@ function renderBoard(){
             ${frequencyLabel(a) ? `· ${escapeHtml(frequencyLabel(a))}` : ""}
             · Planilla: ${escapeHtml(String(Math.max(0, Math.floor(Number(a.sheetCount || 0) || 0))))}
             · Certificado: ${escapeHtml(String(Math.max(0, Math.floor(Number(a.certificateCount || 0) || 0))))}
-            ${a.mailNotice ? "· Aviso x Mail" : ""}
+            · Aviso: ${escapeHtml(mailNoticeLabel(a.mailNotice))}
           </div>
           <div class="card-meta">
             ${upd ? `<span>Actualizado: ${escapeHtml(formatDateTimeAR(upd))}</span>` : `<span class="muted">—</span>`}
@@ -394,7 +412,7 @@ async function importAccountsFromCsv(file){
         phone: String(row.phone || '').trim(),
         sheetCount: Math.max(0, Math.floor(Number(row.sheet_count || 0) || 0)),
         certificateCount: Math.max(0, Math.floor(Number(row.certificate_count || 0) || 0)),
-        mailNotice: ["1", "true", "si", "sí", "x", "yes"].includes(String(row.mail_notice || "").trim().toLowerCase()),
+        mailNotice: normalizeMailNotice(row.mail_notice),
         notes: String(row.notes || '').trim(),
         stage,
         status: stageToAccountStatus(stage),
@@ -458,7 +476,7 @@ function wireModal(){
       phone: $("a_phone").value.trim(),
       sheetCount: Math.max(0, Math.floor(Number($("a_sheetCount").value || 0) || 0)),
       certificateCount: Math.max(0, Math.floor(Number($("a_certificateCount").value || 0) || 0)),
-      mailNotice: !!$("a_mailNotice").checked,
+      mailNotice: normalizeMailNotice($("a_mailNotice").value),
       notes: $("a_notes").value.trim(),
       status: stageToAccountStatus(stage)
     };
