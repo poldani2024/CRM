@@ -35,6 +35,7 @@ function normalizeMailNotice(raw){
   if (["mail", "correo", "email"].includes(v)) return "mail";
   if (["cd"].includes(v)) return "cd";
   if (["sicop"].includes(v)) return "sicop";
+  if (["cetronic"].includes(v)) return "cetronic";
   if (["1", "true", "si", "sí", "x", "yes"].includes(v)) return "mail";
   return "";
 }
@@ -44,6 +45,7 @@ function mailNoticeLabel(raw){
   if (v === "mail") return "Mail";
   if (v === "cd") return "CD";
   if (v === "sicop") return "SICOP";
+  if (v === "cetronic") return "Cetronic";
   return "Sin definir";
 }
 

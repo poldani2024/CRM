@@ -130,6 +130,7 @@ function render(){
               <option value="mail">Mail</option>
               <option value="cd">CD</option>
               <option value="sicop">SICOP</option>
+              <option value="cetronic">Cetronic</option>
             </select>
           </div>
 
@@ -303,6 +304,7 @@ function normalizeMailNotice(raw){
   if (["mail", "correo", "email"].includes(v)) return "mail";
   if (v === "cd") return "cd";
   if (v === "sicop") return "sicop";
+  if (v === "cetronic") return "cetronic";
   if (["1", "true", "si", "sí", "x", "yes"].includes(v)) return "mail";
   return "";
 }
@@ -312,6 +314,7 @@ function mailNoticeLabel(raw){
   if (v === "mail") return "Mail";
   if (v === "cd") return "CD";
   if (v === "sicop") return "SICOP";
+  if (v === "cetronic") return "Cetronic";
   return "Sin definir";
 }
 
