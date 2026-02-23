@@ -20,6 +20,7 @@ let VISITS = [];
 let WORK_ORDERS = [];
 let selectedVisitId = "";
 let kanbanViewMode = "employee";
+let onlyUnassignedConfirmed = true;
 
 function parseVisitDate(v){
   const source = v.plannedDate || v.scheduledFor || v.date;
@@ -113,7 +114,7 @@ function filteredConfirmedVisits(){
 
   return VISITS
     .filter(v=> String(v.status || "").toLowerCase() === "confirmed")
-    .filter(v=> !visitsWithActiveOrder.has(v.id))
+    .filter(v=> !onlyUnassignedConfirmed || !visitsWithActiveOrder.has(v.id))
     .filter(v=> !accountId || v.accountId === accountId)
     .filter(v=> !siteId || v.siteId === siteId)
     .filter(v=> !date || parseVisitDate(v) === date)
@@ -243,6 +244,10 @@ function render(){
           <input id="f_date" type="date" />
         </div>
         <button class="btn" id="btnApplyFilters">Filtrar</button>
+        <label class="row" style="gap:8px; align-items:center; margin-left:6px;">
+          <input type="checkbox" id="f_onlyUnassigned" ${onlyUnassignedConfirmed ? "checked" : ""} />
+          <span class="small">Solo confirmadas pendientes de asignar (sin OT)</span>
+        </label>
       </div>
 
       <div class="spacer"></div>
@@ -314,6 +319,13 @@ function render(){
 
   $("btnApplyFilters")?.addEventListener("click", ()=>{
     selectedVisitId = "";
+    onlyUnassignedConfirmed = !!$("f_onlyUnassigned")?.checked;
+    render();
+  });
+
+  $("f_onlyUnassigned")?.addEventListener("change", ()=>{
+    selectedVisitId = "";
+    onlyUnassignedConfirmed = !!$("f_onlyUnassigned")?.checked;
     render();
   });
 
