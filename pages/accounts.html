@@ -59,6 +59,7 @@
             <option value="offer_sent">Oferta enviada</option>
             <option value="negotiation">Negociación</option>
             <option value="account_active">Cuenta activa</option>
+            <option value="account_inactive">Cuenta inactiva</option>
             <option value="closed">Cerrado</option>
           </select>
         </div>
@@ -66,6 +67,33 @@
         <div class="field">
           <label>Teléfono</label>
           <input id="a_phone" placeholder="Ej: +549341..." />
+        </div>
+
+        <div class="field">
+          <label>Sub Contratista</label>
+          <input id="a_subcontractor" list="a_subcontractor_options" placeholder="Seleccionar o escribir..." />
+          <datalist id="a_subcontractor_options"></datalist>
+        </div>
+
+        <div class="field">
+          <label>Cantidad Planilla</label>
+          <input id="a_sheetCount" type="number" min="0" step="1" value="0" />
+        </div>
+
+        <div class="field">
+          <label>Cantidad Certificado</label>
+          <input id="a_certificateCount" type="number" min="0" step="1" value="0" />
+        </div>
+
+        <div class="field">
+          <label>Aviso</label>
+          <select id="a_mailNotice">
+            <option value="">Sin definir</option>
+            <option value="mail">Mail</option>
+            <option value="cd">CD</option>
+            <option value="sicop">SICOP</option>
+            <option value="cetronic">Cetronic</option>
+          </select>
         </div>
 
         <div class="field" style="grid-column:1/-1;">
