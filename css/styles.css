@@ -501,3 +501,10 @@ a{ color:inherit; text-decoration:none; }
   .search{ display:none; }
   .mywo-card textarea{ min-height: 88px; }
 }
+
+.global-search-hit{
+  outline: 2px solid #1a73e8;
+  outline-offset: 2px;
+  border-radius: 8px;
+  background: #eef5ff !important;
+}
