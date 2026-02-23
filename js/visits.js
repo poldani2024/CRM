@@ -32,6 +32,7 @@ let selectedSiteId = "";
 let activeMenuCell = null;
 let selectedVisitForOrder = null;
 let bulkSelectedSiteIds = new Set();
+let showPendingOnly = false;
 
 function startOfDay(d){
   const n = new Date(d);
@@ -145,6 +146,18 @@ function buildDateColumns(){
 
 function accountFilteredSites(){
   return SITES.filter(site=> !selectedAccountId || site.accountId === selectedAccountId);
+}
+
+function hasAnyVisitInRange(siteId, dateCols, visitMap){
+  return dateCols.some(d=> visitMap.has(`${siteId}|${dateKey(d)}`));
+}
+
+function hasEstimatedInRange(site, account, endDate, dateCols, visitMap){
+  const estimatedDates = new Set(planningDatesForSite(account, endDate));
+  return dateCols.some(d=>{
+    const dKey = dateKey(d);
+    return estimatedDates.has(dKey) && !visitMap.has(`${site.id}|${dKey}`);
+  });
 }
 
 function hideContextMenu(){
@@ -459,6 +472,12 @@ function render(){
   const rows = filteredSites
     .map(site=>({ site, account: accountsById.get(site.accountId) }))
     .filter(row=>row.account)
+    .filter(row=>{
+      if (!showPendingOnly) return true;
+      const hasVisit = hasAnyVisitInRange(row.site.id, dateCols, visitMap);
+      const hasEstimated = hasEstimatedInRange(row.site, row.account, endDate, dateCols, visitMap);
+      return !hasVisit && hasEstimated;
+    })
     .filter(row=> !selectedSiteId || row.site.id === selectedSiteId)
     .sort((a,b)=>{
       const an = (a.account.name || "").localeCompare(b.account.name || "");
@@ -512,6 +531,11 @@ function render(){
         <button class="btn btn-primary" id="btnRefreshVisits">Actualizar vista</button>
 
         <button class="btn" id="btnBulkPlan" ${bulkSelectedSiteIds.size?"":"disabled"}>Planificar selección</button>
+
+        <label class="row" style="gap:8px; align-items:center; margin-left:6px;">
+          <input type="checkbox" id="v_pendingOnly" ${showPendingOnly?"checked":""} />
+          <span class="small">Pendientes de programar</span>
+        </label>
 
         <div class="muted small">Predios planificados: ${rows.length} · Seleccionados: <span id="bulkSelectedCount">0</span> · Hasta ${escapeHtml(endDate.toLocaleDateString("es-AR"))}</div>
       </div>
@@ -621,12 +645,20 @@ function render(){
     render();
   });
 
+  $("v_pendingOnly")?.addEventListener("change", ()=>{
+    showPendingOnly = !!$("v_pendingOnly").checked;
+    selectedSiteId = "";
+    hideContextMenu();
+    render();
+  });
+
   $("btnRefreshVisits").addEventListener("click", ()=>{
     const dt = $("v_start").value;
     startDate = dt ? startOfDay(new Date(`${dt}T00:00:00`)) : startOfDay(new Date());
     rangeDays = Number($("v_horizon").value || 30);
     selectedAccountId = $("v_accountFilter").value;
     selectedSiteId = $("v_siteFilter").value;
+    showPendingOnly = !!$("v_pendingOnly")?.checked;
     hideContextMenu();
     render();
   });
