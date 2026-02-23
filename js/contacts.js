@@ -14,6 +14,136 @@ let ACCOUNTS = [];
 let accountIdPrefill = null;
 let editContactId = null;
 
+function parseCsv(text){
+  const rows = [];
+  let row = [];
+  let current = "";
+  let i = 0;
+  let inQuotes = false;
+
+  while (i < text.length){
+    const ch = text[i];
+
+    if (inQuotes){
+      if (ch === '"'){
+        if (text[i + 1] === '"'){
+          current += '"';
+          i += 2;
+          continue;
+        }
+        inQuotes = false;
+        i += 1;
+        continue;
+      }
+      current += ch;
+      i += 1;
+      continue;
+    }
+
+    if (ch === '"'){
+      inQuotes = true;
+      i += 1;
+      continue;
+    }
+    if (ch === '\n'){
+      row.push(current);
+      rows.push(row);
+      row = [];
+      current = "";
+      i += 1;
+      continue;
+    }
+    if (ch === '\r'){
+      i += 1;
+      continue;
+    }
+
+    current += ch;
+    i += 1;
+  }
+
+  if (current.length || row.length){
+    row.push(current);
+    rows.push(row);
+  }
+
+  if (!rows.length) return [];
+
+  const delimiter = (rows[0].join('').match(/;/g) || []).length > (rows[0].join('').match(/,/g) || []).length ? ';' : ',';
+  const splitRows = rows.map(r=> r.length === 1 ? r[0].split(delimiter) : r);
+  const headers = splitRows[0].map(h => String(h || '').trim());
+  return splitRows.slice(1)
+    .filter(r => r.some(c => String(c || '').trim()))
+    .map(r => {
+      const obj = {};
+      headers.forEach((h, idx)=>{ obj[h] = String(r[idx] || '').trim(); });
+      return obj;
+    });
+}
+
+function normalizeStatus(raw){
+  const v = String(raw || "").trim().toLowerCase();
+  if (!v) return "active";
+  if (["inactive", "inactivo", "baja", "0", "false"].includes(v)) return "inactive";
+  return "active";
+}
+
+async function importContactsFromCsv(file){
+  const text = await file.text();
+  const rows = parseCsv(text);
+  if (!rows.length) return toast("CSV vacío");
+
+  const required = ["account_name"];
+  const missing = required.filter(k => !(k in rows[0]));
+  if (missing.length) return toast(`Faltan columnas: ${missing.join(", ")}`);
+
+  const accountByName = new Map(ACCOUNTS.map(a=>[String(a.name || "").trim().toLowerCase(), a]));
+  const existingContacts = await list("contacts", { order:null, max:4000 });
+  const keySet = new Set(existingContacts.map(c=>[
+    c.accountId || "",
+    String(c.firstName || "").trim().toLowerCase(),
+    String(c.lastName || "").trim().toLowerCase(),
+    String(c.email || "").trim().toLowerCase(),
+    String(c.mobile || "").trim().toLowerCase()
+  ].join("::")));
+
+  let created = 0;
+  let skipped = 0;
+
+  for (const row of rows){
+    const accountName = String(row.account_name || "").trim();
+    const firstName = String(row.first_name || row.name || "").trim();
+    const lastName = String(row.last_name || row.surname || "").trim();
+    const email = String(row.email || "").trim();
+    const mobile = String(row.mobile || row.whatsapp || "").trim();
+    if (!accountName) { skipped += 1; continue; }
+    if (!firstName && !lastName) { skipped += 1; continue; }
+
+    const account = accountByName.get(accountName.toLowerCase());
+    if (!account){ skipped += 1; continue; }
+
+    const key = [account.id, firstName.toLowerCase(), lastName.toLowerCase(), email.toLowerCase(), mobile.toLowerCase()].join("::");
+    if (keySet.has(key)){ skipped += 1; continue; }
+
+    await create("contacts", {
+      accountId: account.id,
+      firstName,
+      lastName,
+      role: String(row.role || "").trim(),
+      email,
+      mobile,
+      notes: String(row.notes || "").trim(),
+      status: normalizeStatus(row.status)
+    }, auth.currentUser);
+    keySet.add(key);
+    created += 1;
+  }
+
+  toast(`Importación contactos OK · Creados: ${created} · Omitidos: ${skipped}`);
+  await loadData();
+  render();
+}
+
 function openCreateModal(){
   editContactId = null;
   $("modalTitle").textContent = "Nuevo contacto";
@@ -61,7 +191,11 @@ function render(){
     <div class="panel" style="padding:14px;">
       <div class="row" style="justify-content:space-between; flex-wrap:wrap;">
         <div class="muted">Total: ${CONTACTS.length}</div>
-        <button class="btn btn-primary" id="btnNew">+ Nuevo contacto</button>
+        <div class="row" style="gap:8px;">
+          <input id="contactsImportFile" type="file" accept=".csv,text/csv" style="display:none;" />
+          <button class="btn" id="btnImportContacts">Importar CSV</button>
+          <button class="btn btn-primary" id="btnNew">+ Nuevo contacto</button>
+        </div>
       </div>
     </div>
 
@@ -146,6 +280,18 @@ function render(){
 
   // wire
   $("btnNew").addEventListener("click", openCreateModal);
+  $("btnImportContacts").addEventListener("click", ()=> $("contactsImportFile").click());
+  $("contactsImportFile").addEventListener("change", async ()=>{
+    const file = $("contactsImportFile").files?.[0];
+    $("contactsImportFile").value = "";
+    if (!file) return;
+    try{
+      await importContactsFromCsv(file);
+    } catch(err){
+      console.error(err);
+      toast(err?.message || "Error importando contactos");
+    }
+  });
   $("btnCloseModal").addEventListener("click", closeModal);
   $("btnCancel").addEventListener("click", closeModal);
   $("btnSave").addEventListener("click", saveContact);
