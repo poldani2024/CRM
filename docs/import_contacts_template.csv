@@ -1,0 +1,4 @@
+account_name,first_name,last_name,role,email,mobile,notes,status
+ACME S.A.,Juan,Pérez,Encargado,juan.perez@acme.com,+5493411111111,Contacto operativo,active
+ACME S.A.,María,Gómez,Administración,maria.gomez@acme.com,+5493412222222,Recibe reportes,active
+Banco Río,Carlos,Sosa,Seguridad,carlos.sosa@bancorio.com,+5493513333333,Cuenta inactiva por temporada,inactive
