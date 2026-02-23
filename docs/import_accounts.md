@@ -2,6 +2,10 @@
 
 ## 1) Cuentas (desde **Cuentas → Importar CSV**)
 
+Encabezado exacto esperado (fila 1):
+
+`account_name,account_type,visit_frequency_per_month,stage,phone,sheet_count,certificate_count,mail_notice,notes,site_name,site_address,site_city,site_notes`
+
 Columnas soportadas:
 
 - `account_name` (obligatorio)
@@ -31,6 +35,10 @@ Template: `docs/import_accounts_template.csv`.
 
 ## 2) Contactos (desde **Contactos → Importar CSV**)
 
+Encabezado exacto esperado (fila 1):
+
+`account_name,first_name,last_name,role,email,mobile,notes,status`
+
 Columnas soportadas:
 
 - `account_name` (obligatorio, debe existir y estar activa)
@@ -53,6 +61,10 @@ Template: `docs/import_contacts_template.csv`.
 ---
 
 ## 3) Predios (desde **Predios → Importar CSV**)
+
+Encabezado exacto esperado (fila 1):
+
+`account_name,site_name,site_address,site_city,requires_sheet,requires_certificate,status,site_notes`
 
 Columnas soportadas:
 
