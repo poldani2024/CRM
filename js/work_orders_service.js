@@ -49,6 +49,8 @@ export async function createWorkOrder({
   account,
   site,
   employee,
+  employees,
+  schedule = "",
   observations = "",
   status = "Confirmada",
   generatedBy
@@ -74,14 +76,31 @@ export async function createWorkOrder({
     finalVisitId = createdVisitRef.id;
   }
 
+  const normalizedEmployees = Array.isArray(employees)
+    ? employees.filter(Boolean)
+    : (employee ? [employee] : []);
+
+  const employeeRefs = normalizedEmployees
+    .map(emp=> ({
+      id: String(emp?.id || "").trim(),
+      name: `${emp?.lastName || ""}${emp?.lastName && emp?.firstName ? ", " : ""}${emp?.firstName || ""}`.trim() || "Sin empleado"
+    }))
+    .filter(emp=> emp.id);
+
+  const fallbackEmployee = employeeRefs[0] || { id:"", name:"" };
+
   const payload = {
     orderNumber,
     year: Number(year),
     visitId: finalVisitId,
     generatedAt: serverTimestamp(),
     visitDate,
-    employeeId: employee?.id || "",
-    employeeName: `${employee?.lastName || ""}${employee?.lastName && employee?.firstName ? ", " : ""}${employee?.firstName || ""}`.trim(),
+    employeeId: fallbackEmployee.id,
+    employeeName: fallbackEmployee.name,
+    employeeIds: employeeRefs.map(emp=> emp.id),
+    employeeNames: employeeRefs.map(emp=> emp.name),
+    assignedEmployees: employeeRefs,
+    schedule: String(schedule || "").trim(),
     accountId: account?.id || visit?.accountId || "",
     accountName: account?.name || "",
     siteId: site?.id || visit?.siteId || "",
@@ -109,6 +128,8 @@ export async function createWorkOrder({
         status: "confirmed",
         assignedEmployeeId: payload.employeeId,
         assignedEmployeeName: payload.employeeName,
+        assignedEmployeeIds: payload.employeeIds,
+        assignedEmployeeNames: payload.employeeNames,
         workOrderId: ref.id,
         workOrderNumber: payload.orderNumber,
         updatedAt: serverTimestamp(),
