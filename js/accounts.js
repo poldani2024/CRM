@@ -113,6 +113,7 @@ function stageLabel(k){
 function accountCreatedDateKey(account){
   const dt = account?.createdAt?.toDate ? account.createdAt.toDate() : null;
   if (!dt) return "";
+<<<<<<< codex/add-work-order-scheduling-and-multi-employee-support-n700lc
   const yyyy = String(dt.getFullYear());
   const mm = String(dt.getMonth() + 1).padStart(2, "0");
   const dd = String(dt.getDate()).padStart(2, "0");
@@ -131,6 +132,9 @@ function normalizeDisplayDate(raw){
   const d = new Date(yyyy, mm - 1, dd);
   if (d.getFullYear() !== yyyy || d.getMonth() !== mm - 1 || d.getDate() !== dd) return "";
   return `${String(dd).padStart(2, "0")}/${String(mm).padStart(2, "0")}/${String(yyyy)}`;
+=======
+  return dt.toISOString().slice(0, 10);
+>>>>>>> main
 }
 
 function normalizeText(raw){
@@ -277,7 +281,11 @@ function renderBoard(){
         </div>
         <div class="field">
           <label>Fecha creación</label>
+<<<<<<< codex/add-work-order-scheduling-and-multi-employee-support-n700lc
           <input id="f_createdDate" value="${escapeHtml(accountFilters.createdDate)}" placeholder="DD/MM/YYYY" inputmode="numeric" />
+=======
+          <input id="f_createdDate" type="date" value="${escapeHtml(accountFilters.createdDate)}" />
+>>>>>>> main
         </div>
         <button class="btn" id="btnApplyAccountFilters">Filtrar</button>
         <button class="btn" id="btnClearAccountFilters">Limpiar</button>
@@ -317,12 +325,17 @@ function renderBoard(){
       locality: $("f_locality").value,
       type: $("f_type").value,
       subcontractor: $("f_subcontractor").value,
+<<<<<<< codex/add-work-order-scheduling-and-multi-employee-support-n700lc
       createdDate: normalizeDisplayDate($("f_createdDate").value)
     };
     if ($("f_createdDate").value && !accountFilters.createdDate){
       toast("Fecha inválida. Usar formato DD/MM/YYYY");
       return;
     }
+=======
+      createdDate: $("f_createdDate").value
+    };
+>>>>>>> main
     renderBoard();
   });
 
