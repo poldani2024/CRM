@@ -166,11 +166,8 @@ function render(){
 
         <div class="field">
           <label>Fecha</label>
-<<<<<<< codex/add-work-order-scheduling-and-multi-employee-support-xa3qtg
+
           <input id="mywo_date" value="${escapeHtml(keyToDisplayDate(filters.date))}" placeholder="DD/MM/YYYY" inputmode="numeric" ${filters.dateMode==="custom"?"":"disabled"} />
-=======
-          <input id="mywo_date" type="date" value="${escapeHtml(filters.date)}" ${filters.dateMode==="custom"?"":"disabled"} />
->>>>>>> main
         </div>
       </div>
     </div>
@@ -180,11 +177,9 @@ function render(){
     ${orders.length ? orders.map(order=>`
       <article class="card mywo-card">
         <div class="card-title">OT ${escapeHtml(order.orderNumber || "—")}</div>
-<<<<<<< codex/add-work-order-scheduling-and-multi-employee-support-xa3qtg
+
         <div class="card-sub muted small">${escapeHtml(keyToDisplayDate(normalizeDate(order.visitDate || order.generatedAt) || "") || "—")} · ${escapeHtml(order.accountName || "Sin empresa")} · ${escapeHtml(order.siteName || "Sin predio")}</div>
-=======
-        <div class="card-sub muted small">${escapeHtml(normalizeDate(order.visitDate || order.generatedAt) || "—")} · ${escapeHtml(order.accountName || "Sin empresa")} · ${escapeHtml(order.siteName || "Sin predio")}</div>
->>>>>>> main
+
         <div class="card-sub muted small">Empleados: ${escapeHtml(orderEmployeesText(order))}</div>
         <div class="field" style="margin-top:8px;">
           <label>Estado</label>
