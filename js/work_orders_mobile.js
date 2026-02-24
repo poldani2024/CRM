@@ -221,7 +221,7 @@ function render(){
   });
 
   $("mywo_date").addEventListener("change", ()=>{
-<<<<<<< codex/add-work-order-scheduling-and-multi-employee-support-xa3qtg
+
     const raw = $("mywo_date").value;
     const key = normalizeInputDateToKey(raw);
     if (raw && !key){
@@ -229,9 +229,6 @@ function render(){
       return;
     }
     filters.date = key;
-=======
-    filters.date = $("mywo_date").value;
->>>>>>> main
     filters.dateMode = "custom";
     render();
   });
