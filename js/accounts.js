@@ -113,7 +113,7 @@ function stageLabel(k){
 function accountCreatedDateKey(account){
   const dt = account?.createdAt?.toDate ? account.createdAt.toDate() : null;
   if (!dt) return "";
-<<<<<<< codex/add-work-order-scheduling-and-multi-employee-support-n700lc
+
   const yyyy = String(dt.getFullYear());
   const mm = String(dt.getMonth() + 1).padStart(2, "0");
   const dd = String(dt.getDate()).padStart(2, "0");
