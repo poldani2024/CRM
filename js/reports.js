@@ -1,7 +1,7 @@
 import { loadShell } from "./ui_shell.js";
 import { requireRole } from "./auth.js";
 import { list } from "./data_access.js";
-import { escapeHtml, $ } from "./utils.js";
+import { escapeHtml, $, normalizeInputDateToKey, keyToDisplayDate, toast } from "./utils.js";
 
 let ACCOUNTS = [];
 let SITES = [];
@@ -286,17 +286,17 @@ function render(){
 
         <div class="field">
           <label>Desde</label>
-          <input id="r_from" type="date" value="${escapeHtml(customFrom || toDateKey(from))}" ${dateMode === "custom" ? "" : "disabled"} />
+          <input id="r_from" value="${escapeHtml(keyToDisplayDate(customFrom || toDateKey(from)))}" placeholder="DD/MM/YYYY" inputmode="numeric" ${dateMode === "custom" ? "" : "disabled"} />
         </div>
 
         <div class="field">
           <label>Hasta</label>
-          <input id="r_to" type="date" value="${escapeHtml(customTo || toDateKey(to))}" ${dateMode === "custom" ? "" : "disabled"} />
+          <input id="r_to" value="${escapeHtml(keyToDisplayDate(customTo || toDateKey(to)))}" placeholder="DD/MM/YYYY" inputmode="numeric" ${dateMode === "custom" ? "" : "disabled"} />
         </div>
 
         <button class="btn btn-primary" id="btnRefreshReports">Actualizar</button>
 
-        <div class="muted small">Rango: ${escapeHtml(toDateKey(from))} a ${escapeHtml(toDateKey(to))}</div>
+        <div class="muted small">Rango: ${escapeHtml(keyToDisplayDate(toDateKey(from)))} a ${escapeHtml(keyToDisplayDate(toDateKey(to)))}</div>
       </div>
     </div>
 
@@ -320,13 +320,23 @@ function render(){
   });
 
   $("r_from").addEventListener("change", ()=>{
-    customFrom = $("r_from").value;
+    const key = normalizeInputDateToKey($("r_from").value);
+    if ($("r_from").value && !key){
+      toast("Fecha inválida. Usar formato DD/MM/YYYY");
+      return;
+    }
+    customFrom = key;
     dateMode = "custom";
     render();
   });
 
   $("r_to").addEventListener("change", ()=>{
-    customTo = $("r_to").value;
+    const key = normalizeInputDateToKey($("r_to").value);
+    if ($("r_to").value && !key){
+      toast("Fecha inválida. Usar formato DD/MM/YYYY");
+      return;
+    }
+    customTo = key;
     dateMode = "custom";
     render();
   });

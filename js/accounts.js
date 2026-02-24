@@ -131,7 +131,10 @@ function normalizeDisplayDate(raw){
   const d = new Date(yyyy, mm - 1, dd);
   if (d.getFullYear() !== yyyy || d.getMonth() !== mm - 1 || d.getDate() !== dd) return "";
   return `${String(dd).padStart(2, "0")}/${String(mm).padStart(2, "0")}/${String(yyyy)}`;
+<<<<<<< codex/add-work-order-scheduling-and-multi-employee-support-xa3qtg
+=======
 
+>>>>>>> main
 }
 
 function normalizeText(raw){
@@ -279,7 +282,10 @@ function renderBoard(){
         <div class="field">
           <label>Fecha creación</label>
           <input id="f_createdDate" value="${escapeHtml(accountFilters.createdDate)}" placeholder="DD/MM/YYYY" inputmode="numeric" />
+<<<<<<< codex/add-work-order-scheduling-and-multi-employee-support-xa3qtg
+=======
          
+>>>>>>> main
         </div>
         <button class="btn" id="btnApplyAccountFilters">Filtrar</button>
         <button class="btn" id="btnClearAccountFilters">Limpiar</button>
@@ -325,7 +331,10 @@ function renderBoard(){
       toast("Fecha inválida. Usar formato DD/MM/YYYY");
       return;
     }
+<<<<<<< codex/add-work-order-scheduling-and-multi-employee-support-xa3qtg
+=======
 
+>>>>>>> main
     renderBoard();
   });
 

@@ -3,7 +3,7 @@ import { requireRole } from "./auth.js";
 import { auth } from "./firebase.js";
 import { list, update } from "./data_access.js";
 import { createWorkOrder } from "./work_orders_service.js";
-import { escapeHtml, $, toast } from "./utils.js";
+import { escapeHtml, $, toast, normalizeInputDateToKey, keyToDisplayDate } from "./utils.js";
 
 const ORDER_STATUSES = ["Confirmada", "En ejecución", "Postergada", "Concretada", "No realizada", "Cancelada"];
 
@@ -103,7 +103,7 @@ function kanbanColumnForStatus(status){
 function filteredConfirmedVisits(){
   const accountId = $("f_account")?.value || "";
   const siteId = $("f_site")?.value || "";
-  const date = $("f_date")?.value || "";
+  const date = normalizeInputDateToKey($("f_date")?.value || "");
 
   const visitsWithActiveOrder = new Set(
     WORK_ORDERS
@@ -241,7 +241,7 @@ function render(){
         </div>
         <div class="field">
           <label>Fecha visita</label>
-          <input id="f_date" type="date" />
+          <input id="f_date" placeholder="DD/MM/YYYY" inputmode="numeric" />
         </div>
         <button class="btn" id="btnApplyFilters">Filtrar</button>
         <label class="row" style="gap:8px; align-items:center; margin-left:6px;">
@@ -258,7 +258,7 @@ function render(){
           const account = ACCOUNTS.find(a=>a.id===v.accountId);
           const selected = selectedVisitId === v.id ? "style=\"border-color:#1a73e8;background:#f1f6ff;\"" : "";
           return `<button class="btn" data-pick-visit="${escapeHtml(v.id)}" ${selected}>
-            ${escapeHtml(parseVisitDate(v) || "—")} · ${escapeHtml(account?.name || "Sin cuenta")} · ${escapeHtml(site?.name || "Sin predio")}
+            ${escapeHtml(keyToDisplayDate(parseVisitDate(v) || "") || "—")} · ${escapeHtml(account?.name || "Sin cuenta")} · ${escapeHtml(site?.name || "Sin predio")}
           </button>`;
         }).join("<div class='spacer'></div>") : `<div class="muted">No hay visitas confirmadas con esos filtros.</div>`}
       </div>
@@ -318,6 +318,11 @@ function render(){
   `;
 
   $("btnApplyFilters")?.addEventListener("click", ()=>{
+    const rawDate = $("f_date")?.value || "";
+    if (rawDate && !normalizeInputDateToKey(rawDate)){
+      toast("Fecha inválida. Usar formato DD/MM/YYYY");
+      return;
+    }
     selectedVisitId = "";
     onlyUnassignedConfirmed = !!$("f_onlyUnassigned")?.checked;
     render();

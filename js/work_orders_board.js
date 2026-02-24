@@ -2,7 +2,7 @@ import { loadShell } from "./ui_shell.js";
 import { requireRole, TENANT_ID } from "./auth.js";
 import { auth, db } from "./firebase.js";
 import { list, update } from "./data_access.js";
-import { escapeHtml, $, toast } from "./utils.js";
+import { escapeHtml, $, toast, normalizeInputDateToKey, keyToDisplayDate } from "./utils.js";
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
 
 const COLUMNS = [
@@ -97,8 +97,9 @@ function toDateKey(d){
 }
 
 function parseDateKey(raw){
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(raw || ""))) return null;
-  const [yyyy, mm, dd] = String(raw).split("-").map(Number);
+  const key = normalizeInputDateToKey(raw);
+  if (!key) return null;
+  const [yyyy, mm, dd] = key.split("-").map(Number);
   return new Date(yyyy, mm - 1, dd);
 }
 
@@ -156,8 +157,8 @@ function openOrderModal(orderId){
 
   $("woModalTitle").textContent = `Orden de Trabajo ${order.orderNumber || ""}`;
   $("wo_m_number").textContent = order.orderNumber || "—";
-  $("wo_m_generated").textContent = toDateKey(new Date());
-  $("wo_m_visit").textContent = normalizeOrderDate(order) || "—";
+  $("wo_m_generated").textContent = keyToDisplayDate(toDateKey(new Date()));
+  $("wo_m_visit").textContent = keyToDisplayDate(normalizeOrderDate(order) || "") || "—";
   $("wo_m_employee").textContent = employee;
   $("wo_m_company").textContent = order.accountName || "—";
   $("wo_m_schedule").textContent = order.schedule || "—";
@@ -177,8 +178,8 @@ function closeOrderModal(){
 }
 
 function generateOrderPdf(order, employee, siteInfo){
-  const generated = toDateKey(new Date());
-  const visitDate = normalizeOrderDate(order) || "—";
+  const generated = keyToDisplayDate(toDateKey(new Date()));
+  const visitDate = keyToDisplayDate(normalizeOrderDate(order) || "") || "—";
   const logoBlock = COMPANY_LOGO ? `<div style="text-align:center;margin-bottom:4mm;"><img src="${COMPANY_LOGO}" alt="logo" style="max-height:24mm; max-width:70mm; object-fit:contain;"></div>` : "";
   const html = `
     <html>
@@ -343,7 +344,7 @@ function render(){
         </div>
         <div class="field">
           <label>Fecha</label>
-          <input id="board_filter_date" type="date" value="${escapeHtml(filters.date || toDateKey(new Date()))}" ${filters.dateMode==="custom"?"":"disabled"} />
+          <input id="board_filter_date" value="${escapeHtml(keyToDisplayDate(filters.date || toDateKey(new Date())))}" placeholder="DD/MM/YYYY" inputmode="numeric" ${filters.dateMode==="custom"?"":"disabled"} />
         </div>
         <button class="btn" id="board_clear_filters">Limpiar</button>
       </div>
@@ -434,7 +435,13 @@ function wireFilterEvents(){
     render();
   });
   $("board_filter_date")?.addEventListener("change", ()=>{
-    filters.date = $("board_filter_date").value;
+    const raw = $("board_filter_date").value;
+    const key = normalizeInputDateToKey(raw);
+    if (raw && !key){
+      toast("Fecha inválida. Usar formato DD/MM/YYYY");
+      return;
+    }
+    filters.date = key || raw;
     filters.dateMode = "custom";
     render();
   });

@@ -2,7 +2,7 @@ import { loadShell } from "./ui_shell.js";
 import { requireRole } from "./auth.js";
 import { auth } from "./firebase.js";
 import { list, create, update, remove } from "./data_access.js";
-import { escapeHtml, $, toast } from "./utils.js";
+import { escapeHtml, $, toast, normalizeInputDateToKey, keyToDisplayDate, formatDateAR } from "./utils.js";
 import { createWorkOrder } from "./work_orders_service.js";
 import { ensureSiteForAccount } from "./account_site_reprocess.js";
 
@@ -52,8 +52,9 @@ function dateKey(d){
 }
 
 function parseDateKey(raw){
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(raw || ""))) return null;
-  const [yyyy, mm, dd] = String(raw).split("-").map(Number);
+  const key = normalizeInputDateToKey(raw);
+  if (!key) return null;
+  const [yyyy, mm, dd] = key.split("-").map(Number);
   return new Date(yyyy, mm - 1, dd);
 }
 
@@ -406,7 +407,7 @@ function updateBulkSelectionUI(visibleRows){
 function openBulkPlanModal(){
   const selectedCount = [...bulkSelectedSiteIds].length;
   if (!selectedCount) return toast("Seleccioná al menos un predio");
-  $("bulk_visitDate").value = dateKey(new Date());
+  $("bulk_visitDate").value = keyToDisplayDate(dateKey(new Date()));
   $("bulk_visitStatus").value = "confirmed";
   $("bulk_selectedInfo").textContent = `${selectedCount} predios seleccionados`;
   $("bulkPlanBackdrop").style.display = "flex";
@@ -417,7 +418,7 @@ function closeBulkPlanModal(){
 }
 
 async function saveBulkPlannedVisits(){
-  const plannedDate = $("bulk_visitDate").value;
+  const plannedDate = normalizeInputDateToKey($("bulk_visitDate").value);
   const status = $("bulk_visitStatus").value;
   if (!plannedDate) return toast("Seleccioná la fecha");
   if (!status) return toast("Seleccioná un estado");
@@ -558,7 +559,7 @@ function render(){
 
         <div class="field">
           <label>Desde fecha</label>
-          <input id="v_start" type="date" value="${dateKey(startDate)}" />
+          <input id="v_start" value="${keyToDisplayDate(dateKey(startDate))}" placeholder="DD/MM/YYYY" inputmode="numeric" />
         </div>
 
         <div class="field">
@@ -646,7 +647,7 @@ function render(){
         <div class="spacer"></div>
         <div class="muted small" id="bulk_selectedInfo">0 predios seleccionados</div>
         <div class="spacer"></div>
-        <div class="field"><label>Fecha para todos</label><input type="date" id="bulk_visitDate" value="${dateKey(new Date())}" /></div>
+        <div class="field"><label>Fecha para todos</label><input id="bulk_visitDate" value="${keyToDisplayDate(dateKey(new Date()))}" placeholder="DD/MM/YYYY" inputmode="numeric" /></div>
         <div class="field">
           <label>Estado para todos</label>
           <select id="bulk_visitStatus">${STATUS_OPTIONS.map(opt=>`<option value="${escapeHtml(opt.value)}">${escapeHtml(opt.label)}</option>`).join("")}</select>
@@ -700,7 +701,11 @@ function render(){
   });
 
   $("btnRefreshVisits").addEventListener("click", ()=>{
-    const dt = $("v_start").value;
+    const dt = normalizeInputDateToKey($("v_start").value);
+    if ($("v_start").value && !dt){
+      toast("Fecha inválida. Usar formato DD/MM/YYYY");
+      return;
+    }
     startDate = dt ? startOfDay(new Date(`${dt}T00:00:00`)) : startOfDay(new Date());
     rangeDays = Number($("v_horizon").value || 30);
     selectedAccountId = $("v_accountFilter").value;

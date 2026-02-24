@@ -2,7 +2,7 @@ import { loadShell } from "./ui_shell.js";
 import { requireRole } from "./auth.js";
 import { auth } from "./firebase.js";
 import { list, update } from "./data_access.js";
-import { escapeHtml, $, toast } from "./utils.js";
+import { escapeHtml, $, toast, normalizeInputDateToKey, keyToDisplayDate } from "./utils.js";
 
 const ORDER_STATUSES = ["Confirmada", "En ejecución", "Postergada", "Concretada", "No realizada", "Cancelada"];
 
@@ -166,7 +166,11 @@ function render(){
 
         <div class="field">
           <label>Fecha</label>
+<<<<<<< codex/add-work-order-scheduling-and-multi-employee-support-xa3qtg
+          <input id="mywo_date" value="${escapeHtml(keyToDisplayDate(filters.date))}" placeholder="DD/MM/YYYY" inputmode="numeric" ${filters.dateMode==="custom"?"":"disabled"} />
+=======
           <input id="mywo_date" type="date" value="${escapeHtml(filters.date)}" ${filters.dateMode==="custom"?"":"disabled"} />
+>>>>>>> main
         </div>
       </div>
     </div>
@@ -176,7 +180,11 @@ function render(){
     ${orders.length ? orders.map(order=>`
       <article class="card mywo-card">
         <div class="card-title">OT ${escapeHtml(order.orderNumber || "—")}</div>
+<<<<<<< codex/add-work-order-scheduling-and-multi-employee-support-xa3qtg
+        <div class="card-sub muted small">${escapeHtml(keyToDisplayDate(normalizeDate(order.visitDate || order.generatedAt) || "") || "—")} · ${escapeHtml(order.accountName || "Sin empresa")} · ${escapeHtml(order.siteName || "Sin predio")}</div>
+=======
         <div class="card-sub muted small">${escapeHtml(normalizeDate(order.visitDate || order.generatedAt) || "—")} · ${escapeHtml(order.accountName || "Sin empresa")} · ${escapeHtml(order.siteName || "Sin predio")}</div>
+>>>>>>> main
         <div class="card-sub muted small">Empleados: ${escapeHtml(orderEmployeesText(order))}</div>
         <div class="field" style="margin-top:8px;">
           <label>Estado</label>
@@ -213,7 +221,17 @@ function render(){
   });
 
   $("mywo_date").addEventListener("change", ()=>{
+<<<<<<< codex/add-work-order-scheduling-and-multi-employee-support-xa3qtg
+    const raw = $("mywo_date").value;
+    const key = normalizeInputDateToKey(raw);
+    if (raw && !key){
+      toast("Fecha inválida. Usar formato DD/MM/YYYY");
+      return;
+    }
+    filters.date = key;
+=======
     filters.date = $("mywo_date").value;
+>>>>>>> main
     filters.dateMode = "custom";
     render();
   });
