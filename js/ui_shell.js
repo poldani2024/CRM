@@ -1,6 +1,6 @@
 import { auth } from "./firebase.js";
 import { onSession, logout, getMyProfile } from "./auth.js";
-import { initials, $ } from "./utils.js";
+import { initials, $, toast } from "./utils.js";
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
 import { db } from "./firebase.js";
 import { TENANT_ID } from "./auth.js";
@@ -57,5 +57,59 @@ export async function loadShell({ activeNav, primaryText="+ Nuevo", onPrimary=nu
     $("meEmail").textContent = p?.email || user.email || "—";
     $("meAvatar").textContent = initials(p?.displayName || user.displayName || "Me");
   });
+
+  wireGlobalSearch();
 }
 
+function normalizeSearchText(raw){
+  return String(raw || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function clearSearchHighlights(){
+  document.querySelectorAll(".global-search-hit").forEach(el=> el.classList.remove("global-search-hit"));
+}
+
+function runGlobalSearch(){
+  const input = $("globalSearch");
+  if (!input) return;
+  const term = normalizeSearchText(input.value);
+  clearSearchHighlights();
+  if (!term) return;
+
+  // 1) Coincidencia con menú: navega a la sección
+  const navItems = Array.from(document.querySelectorAll(".nav .nav-item"));
+  const navMatch = navItems.find(item=> normalizeSearchText(item.textContent).includes(term));
+  if (navMatch && !navMatch.classList.contains("active")){
+    window.location.href = navMatch.getAttribute("href") || window.location.href;
+    return;
+  }
+
+  // 2) Buscar dentro del contenido actual
+  const root = $("pageContent");
+  if (!root) return;
+  const candidates = root.querySelectorAll(".card, tr, .panel, .section-title, .field, .col-title, .tab, button, a, td, th");
+  const match = Array.from(candidates).find(el=> normalizeSearchText(el.textContent).includes(term));
+  if (!match){
+    toast("Sin resultados en esta pantalla");
+    return;
+  }
+
+  match.classList.add("global-search-hit");
+  match.scrollIntoView({ behavior:"smooth", block:"center" });
+}
+
+function wireGlobalSearch(){
+  const input = $("globalSearch");
+  if (!input) return;
+  input.addEventListener("keydown", ev=>{
+    if (ev.key !== "Enter") return;
+    ev.preventDefault();
+    runGlobalSearch();
+  });
+
+  $("btnFilters")?.addEventListener("click", runGlobalSearch);
+}
