@@ -131,6 +131,7 @@ function normalizeDisplayDate(raw){
   const d = new Date(yyyy, mm - 1, dd);
   if (d.getFullYear() !== yyyy || d.getMonth() !== mm - 1 || d.getDate() !== dd) return "";
   return `${String(dd).padStart(2, "0")}/${String(mm).padStart(2, "0")}/${String(yyyy)}`;
+
 }
 
 function normalizeText(raw){
@@ -323,6 +324,7 @@ function renderBoard(){
       toast("Fecha inválida. Usar formato DD/MM/YYYY");
       return;
     }
+
     renderBoard();
   });
 
