@@ -9,22 +9,82 @@ const STAGES = [
   { key:"offer_sent", label:"Oferta enviada" },
   { key:"negotiation", label:"Negociación" },
   { key:"account_active", label:"Cuenta activa" },
+  { key:"account_inactive", label:"Cuenta inactiva" },
   { key:"closed", label:"Cerrado" }
 ];
 
 let PROFILE = null;
 let ACCOUNTS = [];
+let accountFilters = {
+  name: "",
+  stage: "",
+  locality: "",
+  type: "",
+  subcontractor: "",
+  createdDate: ""
+};
 
 function normalizeStage(stage){
   const raw = String(stage || "");
   if (raw === "contacted") return "prospect";
   if (raw === "active") return "account_active";
+  if (raw === "inactive") return "account_inactive";
   if (STAGES.some(s=>s.key === raw)) return raw;
   return "prospect";
 }
 
 function stageToAccountStatus(stage){
   return stage === "account_active" ? "active" : "inactive";
+}
+
+function normalizeMailNotice(raw){
+  const v = String(raw || "").trim().toLowerCase();
+  if (!v) return "";
+  if (["mail", "correo", "email"].includes(v)) return "mail";
+  if (["cd"].includes(v)) return "cd";
+  if (["sicop"].includes(v)) return "sicop";
+  if (["cetronic"].includes(v)) return "cetronic";
+  if (["1", "true", "si", "sí", "x", "yes"].includes(v)) return "mail";
+  return "";
+}
+
+function mailNoticeLabel(raw){
+  const v = normalizeMailNotice(raw);
+  if (v === "mail") return "Mail";
+  if (v === "cd") return "CD";
+  if (v === "sicop") return "SICOP";
+  if (v === "cetronic") return "Cetronic";
+  return "Sin definir";
+}
+
+function subcontractorOptions(){
+  return Array.from(new Set(
+    ACCOUNTS
+      .map(a=> String(a?.subcontractor || "").trim())
+      .filter(Boolean)
+  )).sort((a,b)=> a.localeCompare(b));
+}
+
+function renderSubcontractorOptions(){
+  const dl = $("a_subcontractor_options");
+  if (!dl) return;
+  dl.innerHTML = subcontractorOptions()
+    .map(v=> `<option value="${escapeHtml(v)}"></option>`)
+    .join("");
+}
+
+async function deactivateSitesForAccount(accountId){
+  const sites = await list("sites", {
+    filters: [
+      { field:"accountId", op:"==", value: accountId },
+      { field:"status", op:"==", value:"active" }
+    ],
+    order: null,
+    max: 2000
+  });
+  for (const site of sites){
+    await update("sites", site.id, { status:"inactive" }, auth.currentUser);
+  }
 }
 
 
@@ -36,6 +96,10 @@ function closeModal(){
   $("a_name").value = "";
   $("a_phone").value = "";
   $("a_notes").value = "";
+  $("a_subcontractor").value = "";
+  $("a_sheetCount").value = "0";
+  $("a_certificateCount").value = "0";
+  $("a_mailNotice").value = "";
   $("a_type").value = "bank";
   $("a_visitUnit").value = "1";
   $("a_visitPeriod").value = "week";
@@ -44,6 +108,57 @@ function closeModal(){
 
 function stageLabel(k){
   return STAGES.find(s=>s.key===k)?.label || k;
+}
+
+function accountCreatedDateKey(account){
+  const dt = account?.createdAt?.toDate ? account.createdAt.toDate() : null;
+  if (!dt) return "";
+  const yyyy = String(dt.getFullYear());
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+function normalizeDisplayDate(raw){
+  const v = String(raw || "").trim();
+  if (!v) return "";
+  const m = v.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (!m) return "";
+  const dd = Number(m[1]);
+  const mm = Number(m[2]);
+  const yyyy = Number(m[3]);
+  if (!yyyy || mm < 1 || mm > 12 || dd < 1 || dd > 31) return "";
+  const d = new Date(yyyy, mm - 1, dd);
+  if (d.getFullYear() !== yyyy || d.getMonth() !== mm - 1 || d.getDate() !== dd) return "";
+  return `${String(dd).padStart(2, "0")}/${String(mm).padStart(2, "0")}/${String(yyyy)}`;
+}
+
+function normalizeText(raw){
+  return String(raw || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function filteredAccounts(){
+  const name = normalizeText(accountFilters.name);
+  const locality = normalizeText(accountFilters.locality);
+  const subcontractor = normalizeText(accountFilters.subcontractor);
+  const createdDate = accountFilters.createdDate;
+
+  return ACCOUNTS.filter(a=>{
+    if (name && !normalizeText(a.name).includes(name)) return false;
+    if (accountFilters.stage && normalizeStage(a.stage) !== accountFilters.stage) return false;
+    if (accountFilters.type && String(a.type || "") !== accountFilters.type) return false;
+    if (locality){
+      const loc = normalizeText(a.city || a.locality || a.location);
+      if (!loc.includes(locality)) return false;
+    }
+    if (subcontractor && !normalizeText(a.subcontractor).includes(subcontractor)) return false;
+    if (createdDate && accountCreatedDateKey(a) !== createdDate) return false;
+    return true;
+  });
 }
 
 let draggedId = null;
@@ -97,6 +212,9 @@ function enableDragDrop(){
           stage: newStage,
           status: stageToAccountStatus(newStage)
         }, auth.currentUser);
+        if (stageToAccountStatus(newStage) === "inactive"){
+          await deactivateSitesForAccount(draggedId);
+        }
         toast("Movido ✅");
 
         await loadData();
@@ -117,6 +235,52 @@ function renderBoard(){
       <div class="row" style="gap:8px;">
         <input id="accountsImportFile" type="file" accept=".csv,text/csv" style="display:none;" />
         <button class="btn" id="btnImportAccounts">Importar CSV</button>
+      </div>
+    </div>
+    <div class="panel" style="padding:12px; margin-top:10px;">
+      <div class="row" style="gap:10px; flex-wrap:wrap; align-items:flex-end;">
+        <div class="field">
+          <label>Nombre</label>
+          <input id="f_name" value="${escapeHtml(accountFilters.name)}" placeholder="Buscar por nombre..." />
+        </div>
+        <div class="field">
+          <label>Estado</label>
+          <select id="f_stage">
+            <option value="">Todos</option>
+            ${STAGES.map(s=>`<option value="${escapeHtml(s.key)}" ${accountFilters.stage===s.key?"selected":""}>${escapeHtml(s.label)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field">
+          <label>Localidad</label>
+          <input id="f_locality" value="${escapeHtml(accountFilters.locality)}" placeholder="Ej: Rosario" />
+        </div>
+        <div class="field">
+          <label>Tipo cliente</label>
+          <select id="f_type">
+            <option value="">Todos</option>
+            <option value="bank" ${accountFilters.type==="bank"?"selected":""}>Banco</option>
+            <option value="building" ${accountFilters.type==="building"?"selected":""}>Edificio</option>
+            <option value="warehouse" ${accountFilters.type==="warehouse"?"selected":""}>Depósito</option>
+            <option value="store" ${accountFilters.type==="store"?"selected":""}>Local</option>
+            <option value="plant" ${accountFilters.type==="plant"?"selected":""}>Planta</option>
+            <option value="business" ${accountFilters.type==="business"?"selected":""}>Empresa</option>
+            <option value="commercial" ${accountFilters.type==="commercial"?"selected":""}>Comercial</option>
+            <option value="residential" ${accountFilters.type==="residential"?"selected":""}>Residencial</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Sub Contratista</label>
+          <input id="f_subcontractor" value="${escapeHtml(accountFilters.subcontractor)}" list="f_subcontractor_opts" placeholder="Todos" />
+          <datalist id="f_subcontractor_opts">
+            ${subcontractorOptions().map(v=>`<option value="${escapeHtml(v)}"></option>`).join("")}
+          </datalist>
+        </div>
+        <div class="field">
+          <label>Fecha creación</label>
+          <input id="f_createdDate" value="${escapeHtml(accountFilters.createdDate)}" placeholder="DD/MM/YYYY" inputmode="numeric" />
+        </div>
+        <button class="btn" id="btnApplyAccountFilters">Filtrar</button>
+        <button class="btn" id="btnClearAccountFilters">Limpiar</button>
       </div>
     </div>
     <div class="board">
@@ -146,10 +310,31 @@ function renderBoard(){
     }
   });
 
+  $("btnApplyAccountFilters")?.addEventListener("click", ()=>{
+    accountFilters = {
+      name: $("f_name").value,
+      stage: $("f_stage").value,
+      locality: $("f_locality").value,
+      type: $("f_type").value,
+      subcontractor: $("f_subcontractor").value,
+      createdDate: normalizeDisplayDate($("f_createdDate").value)
+    };
+    if ($("f_createdDate").value && !accountFilters.createdDate){
+      toast("Fecha inválida. Usar formato DD/MM/YYYY");
+      return;
+    }
+    renderBoard();
+  });
+
+  $("btnClearAccountFilters")?.addEventListener("click", ()=>{
+    accountFilters = { name:"", stage:"", locality:"", type:"", subcontractor:"", createdDate:"" };
+    renderBoard();
+  });
+
   // distribuir cards
   const byStage = {};
   for (const s of STAGES) byStage[s.key] = [];
-  for (const a of ACCOUNTS){
+  for (const a of filteredAccounts()){
     const st = normalizeStage(a.stage);
     (byStage[st] ||= []).push(a);
   }
@@ -168,7 +353,11 @@ function renderBoard(){
           <div class="card-sub muted small">
             ${escapeHtml(typeLabel(a.type))}
             ${a.phone ? `· ${escapeHtml(a.phone)}` : ""}
+            ${a.subcontractor ? `· Sub Contratista: ${escapeHtml(a.subcontractor)}` : ""}
             ${frequencyLabel(a) ? `· ${escapeHtml(frequencyLabel(a))}` : ""}
+            · Planilla: ${escapeHtml(String(Math.max(0, Math.floor(Number(a.sheetCount || 0) || 0))))}
+            · Certificado: ${escapeHtml(String(Math.max(0, Math.floor(Number(a.certificateCount || 0) || 0))))}
+            · Aviso: ${escapeHtml(mailNoticeLabel(a.mailNotice))}
           </div>
           <div class="card-meta">
             ${upd ? `<span>Actualizado: ${escapeHtml(formatDateTimeAR(upd))}</span>` : `<span class="muted">—</span>`}
@@ -185,6 +374,8 @@ function renderBoard(){
       });
     });
   }
+
+  renderSubcontractorOptions();
 
     enableDragDrop();
 }
@@ -325,6 +516,10 @@ function normalizeStageImport(raw){
     negotiation: 'negotiation',
     'cuenta activa': 'account_active',
     account_active: 'account_active',
+    'cuenta inactiva': 'account_inactive',
+    account_inactive: 'account_inactive',
+    inactivo: 'account_inactive',
+    inactive: 'account_inactive',
     activo: 'account_active',
     active: 'account_active',
     cerrado: 'closed',
@@ -363,6 +558,10 @@ async function importAccountsFromCsv(file){
         name: accountName,
         type: normalizeType(row.account_type),
         phone: String(row.phone || '').trim(),
+        subcontractor: String(row.subcontractor || '').trim(),
+        sheetCount: Math.max(0, Math.floor(Number(row.sheet_count || 0) || 0)),
+        certificateCount: Math.max(0, Math.floor(Number(row.certificate_count || 0) || 0)),
+        mailNotice: normalizeMailNotice(row.mail_notice),
         notes: String(row.notes || '').trim(),
         stage,
         status: stageToAccountStatus(stage),
@@ -377,6 +576,7 @@ async function importAccountsFromCsv(file){
 
     const siteName = String(row.site_name || '').trim();
     const siteAddress = String(row.site_address || '').trim();
+    if (account.status !== 'active') continue;
     if (!siteName) continue;
 
     const key = `${account.id}::${siteName.toLowerCase()}::${siteAddress.toLowerCase()}`;
@@ -423,6 +623,10 @@ function wireModal(){
       visitFrequencyPeriod: $("a_visitPeriod").value,
       stage,
       phone: $("a_phone").value.trim(),
+      subcontractor: $("a_subcontractor").value.trim(),
+      sheetCount: Math.max(0, Math.floor(Number($("a_sheetCount").value || 0) || 0)),
+      certificateCount: Math.max(0, Math.floor(Number($("a_certificateCount").value || 0) || 0)),
+      mailNotice: normalizeMailNotice($("a_mailNotice").value),
       notes: $("a_notes").value.trim(),
       status: stageToAccountStatus(stage)
     };
@@ -430,6 +634,7 @@ function wireModal(){
     $("btnSave").disabled = true;
     try{
       const id = await create("accounts", data, auth.currentUser);
+      if (data.status === "inactive") await deactivateSitesForAccount(id);
       toast("Cuenta creada");
       closeModal();
       await loadData();
