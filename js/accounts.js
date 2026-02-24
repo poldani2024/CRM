@@ -15,6 +15,14 @@ const STAGES = [
 
 let PROFILE = null;
 let ACCOUNTS = [];
+let accountFilters = {
+  name: "",
+  stage: "",
+  locality: "",
+  type: "",
+  subcontractor: "",
+  createdDate: ""
+};
 
 function normalizeStage(stage){
   const raw = String(stage || "");
@@ -102,6 +110,40 @@ function stageLabel(k){
   return STAGES.find(s=>s.key===k)?.label || k;
 }
 
+function accountCreatedDateKey(account){
+  const dt = account?.createdAt?.toDate ? account.createdAt.toDate() : null;
+  if (!dt) return "";
+  return dt.toISOString().slice(0, 10);
+}
+
+function normalizeText(raw){
+  return String(raw || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function filteredAccounts(){
+  const name = normalizeText(accountFilters.name);
+  const locality = normalizeText(accountFilters.locality);
+  const subcontractor = normalizeText(accountFilters.subcontractor);
+  const createdDate = accountFilters.createdDate;
+
+  return ACCOUNTS.filter(a=>{
+    if (name && !normalizeText(a.name).includes(name)) return false;
+    if (accountFilters.stage && normalizeStage(a.stage) !== accountFilters.stage) return false;
+    if (accountFilters.type && String(a.type || "") !== accountFilters.type) return false;
+    if (locality){
+      const loc = normalizeText(a.city || a.locality || a.location);
+      if (!loc.includes(locality)) return false;
+    }
+    if (subcontractor && !normalizeText(a.subcontractor).includes(subcontractor)) return false;
+    if (createdDate && accountCreatedDateKey(a) !== createdDate) return false;
+    return true;
+  });
+}
+
 let draggedId = null;
 let justDragged = false;
 
@@ -178,6 +220,52 @@ function renderBoard(){
         <button class="btn" id="btnImportAccounts">Importar CSV</button>
       </div>
     </div>
+    <div class="panel" style="padding:12px; margin-top:10px;">
+      <div class="row" style="gap:10px; flex-wrap:wrap; align-items:flex-end;">
+        <div class="field">
+          <label>Nombre</label>
+          <input id="f_name" value="${escapeHtml(accountFilters.name)}" placeholder="Buscar por nombre..." />
+        </div>
+        <div class="field">
+          <label>Estado</label>
+          <select id="f_stage">
+            <option value="">Todos</option>
+            ${STAGES.map(s=>`<option value="${escapeHtml(s.key)}" ${accountFilters.stage===s.key?"selected":""}>${escapeHtml(s.label)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field">
+          <label>Localidad</label>
+          <input id="f_locality" value="${escapeHtml(accountFilters.locality)}" placeholder="Ej: Rosario" />
+        </div>
+        <div class="field">
+          <label>Tipo cliente</label>
+          <select id="f_type">
+            <option value="">Todos</option>
+            <option value="bank" ${accountFilters.type==="bank"?"selected":""}>Banco</option>
+            <option value="building" ${accountFilters.type==="building"?"selected":""}>Edificio</option>
+            <option value="warehouse" ${accountFilters.type==="warehouse"?"selected":""}>Depósito</option>
+            <option value="store" ${accountFilters.type==="store"?"selected":""}>Local</option>
+            <option value="plant" ${accountFilters.type==="plant"?"selected":""}>Planta</option>
+            <option value="business" ${accountFilters.type==="business"?"selected":""}>Empresa</option>
+            <option value="commercial" ${accountFilters.type==="commercial"?"selected":""}>Comercial</option>
+            <option value="residential" ${accountFilters.type==="residential"?"selected":""}>Residencial</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Sub Contratista</label>
+          <input id="f_subcontractor" value="${escapeHtml(accountFilters.subcontractor)}" list="f_subcontractor_opts" placeholder="Todos" />
+          <datalist id="f_subcontractor_opts">
+            ${subcontractorOptions().map(v=>`<option value="${escapeHtml(v)}"></option>`).join("")}
+          </datalist>
+        </div>
+        <div class="field">
+          <label>Fecha creación</label>
+          <input id="f_createdDate" type="date" value="${escapeHtml(accountFilters.createdDate)}" />
+        </div>
+        <button class="btn" id="btnApplyAccountFilters">Filtrar</button>
+        <button class="btn" id="btnClearAccountFilters">Limpiar</button>
+      </div>
+    </div>
     <div class="board">
       ${STAGES.map(s=>`
         <div class="col" data-drop-stage="${s.key}">
@@ -205,10 +293,27 @@ function renderBoard(){
     }
   });
 
+  $("btnApplyAccountFilters")?.addEventListener("click", ()=>{
+    accountFilters = {
+      name: $("f_name").value,
+      stage: $("f_stage").value,
+      locality: $("f_locality").value,
+      type: $("f_type").value,
+      subcontractor: $("f_subcontractor").value,
+      createdDate: $("f_createdDate").value
+    };
+    renderBoard();
+  });
+
+  $("btnClearAccountFilters")?.addEventListener("click", ()=>{
+    accountFilters = { name:"", stage:"", locality:"", type:"", subcontractor:"", createdDate:"" };
+    renderBoard();
+  });
+
   // distribuir cards
   const byStage = {};
   for (const s of STAGES) byStage[s.key] = [];
-  for (const a of ACCOUNTS){
+  for (const a of filteredAccounts()){
     const st = normalizeStage(a.stage);
     (byStage[st] ||= []).push(a);
   }
