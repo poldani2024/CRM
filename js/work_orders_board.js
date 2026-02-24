@@ -54,6 +54,31 @@ function employeeLabel(employee){
   return `${employee.lastName || ""}${employee.lastName && employee.firstName ? ", " : ""}${employee.firstName || ""}`.trim() || "Sin empleado";
 }
 
+function orderEmployeeRefs(order){
+  if (Array.isArray(order?.assignedEmployees) && order.assignedEmployees.length){
+    return order.assignedEmployees
+      .map(emp=> ({ id: String(emp?.id || "").trim(), name: String(emp?.name || "").trim() }))
+      .filter(emp=> emp.id)
+      .map(emp=> ({ ...emp, name: emp.name || "Sin empleado" }));
+  }
+  if (Array.isArray(order?.employeeIds) && order.employeeIds.length){
+    return order.employeeIds
+      .map((id, idx)=> ({ id: String(id || "").trim(), name: String(order?.employeeNames?.[idx] || "").trim() }))
+      .filter(emp=> emp.id)
+      .map(emp=> ({ ...emp, name: emp.name || "Sin empleado" }));
+  }
+  if (order?.employeeId){
+    return [{ id: order.employeeId, name: order.employeeName || "Sin empleado" }];
+  }
+  return [];
+}
+
+function orderEmployeeNames(order){
+  const refs = orderEmployeeRefs(order);
+  if (!refs.length) return "Sin empleado";
+  return refs.map(ref=> ref.name).join(" · ");
+}
+
 function siteInfoForOrder(order){
   const byId = SITES.find(site=> site.id && order.siteId && site.id === order.siteId);
   const byName = SITES.find(site=> (site.name || "") === (order.siteName || ""));
@@ -126,7 +151,7 @@ function openOrderModal(orderId){
   const order = WORK_ORDERS.find(o=>o.id === orderId);
   if (!order) return;
 
-  const employee = order.employeeName || "Sin empleado";
+  const employee = orderEmployeeNames(order);
   const siteInfo = siteInfoForOrder(order);
 
   $("woModalTitle").textContent = `Orden de Trabajo ${order.orderNumber || ""}`;
@@ -135,6 +160,7 @@ function openOrderModal(orderId){
   $("wo_m_visit").textContent = normalizeOrderDate(order) || "—";
   $("wo_m_employee").textContent = employee;
   $("wo_m_company").textContent = order.accountName || "—";
+  $("wo_m_schedule").textContent = order.schedule || "—";
   $("wo_m_siteName").textContent = siteInfo.siteName;
   $("wo_m_site").textContent = siteInfo.serviceAddress;
   $("wo_m_status").textContent = order.status || "—";
@@ -178,7 +204,8 @@ function generateOrderPdf(order, employee, siteInfo){
           </div>
           <div class="row"><span class="label">Número:</span> ${order.orderNumber || "—"}</div>
           <div class="row"><span class="label">Fecha de generación:</span> ${generated}</div>
-          <div class="row"><span class="label">Empleado asignado:</span> ${employee}</div>
+          <div class="row"><span class="label">Empleados asignados:</span> ${employee}</div>
+          <div class="row"><span class="label">Horario:</span> ${order.schedule || "—"}</div>
           <div class="row"><span class="label">Empresa:</span> ${order.accountName || "—"}</div>
           <div class="row"><span class="label">Predio:</span> ${siteInfo.siteName}</div>
           <div class="row"><span class="label">Domicilio servicio:</span> ${siteInfo.serviceAddress}</div>
@@ -202,7 +229,12 @@ function getFilteredOrders(){
   const range = getDateRangeFromFilters();
 
   return WORK_ORDERS
-    .filter(order=> !filters.employeeId || (order.employeeId || "no_employee") === filters.employeeId)
+    .filter(order=> {
+      if (!filters.employeeId) return true;
+      const refs = orderEmployeeRefs(order);
+      if (!refs.length) return filters.employeeId === "no_employee";
+      return refs.some(ref=> ref.id === filters.employeeId);
+    })
     .filter(order=> !filters.account || (order.accountName || "") === filters.account)
     .filter(order=> !filters.site || (order.siteName || "") === filters.site)
     .filter(order=>{
@@ -225,12 +257,19 @@ function buildRows(filteredOrders){
   }
 
   for (const order of filteredOrders){
-    const empId = order.employeeId || "no_employee";
-    if (!map.has(empId)){
-      map.set(empId, {
-        id: empId,
-        name: order.employeeName || "Sin empleado"
-      });
+    const refs = orderEmployeeRefs(order);
+    if (!refs.length){
+      const noEmpId = "no_employee";
+      if (!map.has(noEmpId)){
+        map.set(noEmpId, { id: noEmpId, name: "Sin empleado" });
+      }
+      continue;
+    }
+
+    for (const ref of refs){
+      if (!map.has(ref.id)){
+        map.set(ref.id, { id: ref.id, name: ref.name });
+      }
     }
   }
 
@@ -243,7 +282,11 @@ function buildRows(filteredOrders){
 
 function cardsFor(employeeId, columnKey, filteredOrders){
   return filteredOrders
-    .filter(order=> (order.employeeId || "no_employee") === employeeId)
+    .filter(order=> {
+      const refs = orderEmployeeRefs(order);
+      if (!refs.length) return employeeId === "no_employee";
+      return refs.some(ref=> ref.id === employeeId);
+    })
     .filter(order=> statusToColumn(order.status) === columnKey)
     .sort((a,b)=> String(a.orderNumber || "").localeCompare(String(b.orderNumber || "")));
 }
@@ -341,7 +384,8 @@ function render(){
           <div class="field"><label>Número</label><div id="wo_m_number" class="muted">—</div></div>
           <div class="field"><label>Fecha generación</label><div id="wo_m_generated" class="muted">—</div></div>
           <div class="field"><label>Fecha realización</label><div id="wo_m_visit" class="muted">—</div></div>
-          <div class="field"><label>Empleado</label><div id="wo_m_employee" class="muted">—</div></div>
+          <div class="field"><label>Empleados</label><div id="wo_m_employee" class="muted">—</div></div>
+          <div class="field"><label>Horario</label><div id="wo_m_schedule" class="muted">—</div></div>
           <div class="field"><label>Empresa</label><div id="wo_m_company" class="muted">—</div></div>
           <div class="field"><label>Predio</label><div id="wo_m_siteName" class="muted">—</div></div>
           <div class="field"><label>Domicilio servicio</label><div id="wo_m_site" class="muted">—</div></div>
@@ -434,9 +478,14 @@ function wireDnD(){
       const nextStatus = columnToStatus(column, order.status);
 
       try{
+        const nextEmployeeId = employeeId === "no_employee" ? "" : employeeId;
+        const nextEmployeeName = employee ? employeeLabel(employee) : (employeeId === "no_employee" ? "Sin empleado" : order.employeeName || "");
         await update("work_orders", order.id, {
-          employeeId: employeeId === "no_employee" ? "" : employeeId,
-          employeeName: employee ? employeeLabel(employee) : (employeeId === "no_employee" ? "Sin empleado" : order.employeeName || ""),
+          employeeId: nextEmployeeId,
+          employeeName: nextEmployeeName,
+          employeeIds: nextEmployeeId ? [nextEmployeeId] : [],
+          employeeNames: nextEmployeeId ? [nextEmployeeName] : [],
+          assignedEmployees: nextEmployeeId ? [{ id: nextEmployeeId, name: nextEmployeeName }] : [],
           status: nextStatus,
           active: nextStatus !== "Cancelada"
         }, auth.currentUser);
@@ -444,8 +493,10 @@ function wireDnD(){
         if (order.visitId){
           await update("visits", order.visitId, {
             status: mapOrderStatusToVisitStatus(nextStatus),
-            assignedEmployeeId: employeeId === "no_employee" ? "" : employeeId,
-            assignedEmployeeName: employee ? employeeLabel(employee) : (employeeId === "no_employee" ? "Sin empleado" : order.employeeName || "")
+            assignedEmployeeId: nextEmployeeId,
+            assignedEmployeeName: nextEmployeeName,
+            assignedEmployeeIds: nextEmployeeId ? [nextEmployeeId] : [],
+            assignedEmployeeNames: nextEmployeeId ? [nextEmployeeName] : []
           }, auth.currentUser);
         }
 
@@ -468,9 +519,17 @@ async function loadData(){
   });
 
   SITES = await list("sites", {
+    filters: [{ field:"status", op:"==", value:"active" }],
     order: { field:"name", dir:"asc" },
     max: 2000
   });
+  const accounts = await list("accounts", {
+    filters: [{ field:"status", op:"==", value:"active" }],
+    order: { field:"name", dir:"asc" },
+    max: 1000
+  });
+  const activeAccountIds = new Set(accounts.map(a=>a.id));
+  SITES = SITES.filter(site=> activeAccountIds.has(site.accountId));
 
   WORK_ORDERS = await list("work_orders", {
     order: { field:"createdAt", dir:"desc" },

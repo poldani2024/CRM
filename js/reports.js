@@ -125,16 +125,30 @@ function operationalData(from, to){
   }
 
   for (const order of ordersInRange){
-    const key = order.employeeId || "__none__";
-    if (!byEmployee.has(key)){
-      byEmployee.set(key, { employee: order.employeeName || "Sin empleado", total: 0, confirmed: 0, doing: 0, done: 0, issues: 0 });
+    const refs = Array.isArray(order?.assignedEmployees) && order.assignedEmployees.length
+      ? order.assignedEmployees
+      : (Array.isArray(order?.employeeIds) && order.employeeIds.length
+        ? order.employeeIds.map((id, idx)=> ({ id, name: order?.employeeNames?.[idx] || "" }))
+        : (order.employeeId ? [{ id: order.employeeId, name: order.employeeName || "" }] : []));
+
+    const normalizedRefs = refs.length
+      ? refs.map(ref=> ({
+          id: String(ref?.id || "").trim(),
+          name: String(ref?.name || "").trim() || "Sin empleado"
+        })).filter(ref=> ref.id)
+      : [{ id: "__none__", name: "Sin empleado" }];
+
+    for (const ref of normalizedRefs){
+      if (!byEmployee.has(ref.id)){
+        byEmployee.set(ref.id, { employee: ref.name, total: 0, confirmed: 0, doing: 0, done: 0, issues: 0 });
+      }
+      const row = byEmployee.get(ref.id);
+      row.total += 1;
+      if (order.status === "Confirmada") row.confirmed += 1;
+      if (order.status === "En ejecución") row.doing += 1;
+      if (order.status === "Concretada") row.done += 1;
+      if (["No realizada", "Cancelada", "Postergada"].includes(order.status)) row.issues += 1;
     }
-    const row = byEmployee.get(key);
-    row.total += 1;
-    if (order.status === "Confirmada") row.confirmed += 1;
-    if (order.status === "En ejecución") row.doing += 1;
-    if (order.status === "Concretada") row.done += 1;
-    if (["No realizada", "Cancelada", "Postergada"].includes(order.status)) row.issues += 1;
   }
 
   const employeesTable = [...byEmployee.values()]

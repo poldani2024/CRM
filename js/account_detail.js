@@ -10,9 +10,18 @@ function getParam(name){
 }
 
 let ACCOUNT = null;
+let ACCOUNT_OPTIONS = [];
 let CONTACTS = [];
 let SITES = [];
 let activeTab = "summary";
+
+function subcontractorOptions(){
+  return Array.from(new Set(
+    ACCOUNT_OPTIONS
+      .map(a=> String(a?.subcontractor || "").trim())
+      .filter(Boolean)
+  )).sort((a,b)=> a.localeCompare(b));
+}
 
 function render(){
   const c = document.getElementById("pageContent");
@@ -37,7 +46,7 @@ function render(){
         <div class="row" style="gap:10px; flex-wrap:wrap;">
           <button class="btn" id="btnEdit">Editar</button>
           <a class="btn" href="../pages/contacts.html?accountId=${encodeURIComponent(ACCOUNT.id)}">+ Nuevo contacto</a>
-          <a class="btn btn-primary" href="../pages/sites.html?accountId=${encodeURIComponent(ACCOUNT.id)}">+ Nuevo predio</a>
+          ${ACCOUNT.status === "active" ? `<a class="btn btn-primary" href="../pages/sites.html?accountId=${encodeURIComponent(ACCOUNT.id)}">+ Nuevo predio</a>` : `<button class="btn btn-primary" disabled>Cuenta inactiva</button>`}
         </div>
       </div>
 
@@ -103,6 +112,7 @@ function render(){
               <option value="offer_sent">Oferta enviada</option>
               <option value="negotiation">Negociación</option>
               <option value="account_active">Cuenta activa</option>
+              <option value="account_inactive">Cuenta inactiva</option>
               <option value="closed">Cerrado</option>
             </select>
           </div>
@@ -110,6 +120,35 @@ function render(){
           <div class="field">
             <label>Teléfono</label>
             <input id="e_phone" />
+          </div>
+
+          <div class="field">
+            <label>Sub Contratista</label>
+            <input id="e_subcontractor" list="e_subcontractor_options" placeholder="Seleccionar o escribir..." />
+            <datalist id="e_subcontractor_options">
+              ${subcontractorOptions().map(v=>`<option value="${escapeHtml(v)}"></option>`).join("")}
+            </datalist>
+          </div>
+
+          <div class="field">
+            <label>Cantidad Planilla</label>
+            <input id="e_sheetCount" type="number" min="0" step="1" />
+          </div>
+
+          <div class="field">
+            <label>Cantidad Certificado</label>
+            <input id="e_certificateCount" type="number" min="0" step="1" />
+          </div>
+
+          <div class="field">
+            <label>Aviso</label>
+            <select id="e_mailNotice">
+              <option value="">Sin definir</option>
+              <option value="mail">Mail</option>
+              <option value="cd">CD</option>
+              <option value="sicop">SICOP</option>
+              <option value="cetronic">Cetronic</option>
+            </select>
           </div>
 
           <div class="field" style="grid-column:1/-1;">
@@ -164,12 +203,28 @@ function renderTab(){
             <div style="font-weight:700;">${escapeHtml(typeLabel(ACCOUNT.type))}</div>
           </div>
           <div>
+            <div class="muted small">Sub Contratista</div>
+            <div style="font-weight:700;">${escapeHtml(ACCOUNT.subcontractor || "—")}</div>
+          </div>
+          <div>
             <div class="muted small">Frecuencia de visita</div>
             <div style="font-weight:700;">${escapeHtml(frequencyLabel(ACCOUNT) || "—")}</div>
           </div>
           <div>
             <div class="muted small">Estado</div>
             <div style="font-weight:700;">${escapeHtml(stageLabel(ACCOUNT.stage))}</div>
+          </div>
+          <div>
+            <div class="muted small">Cantidad Planilla</div>
+            <div style="font-weight:700;">${escapeHtml(String(Math.max(0, Math.floor(Number(ACCOUNT.sheetCount || 0) || 0))))}</div>
+          </div>
+          <div>
+            <div class="muted small">Cantidad Certificado</div>
+            <div style="font-weight:700;">${escapeHtml(String(Math.max(0, Math.floor(Number(ACCOUNT.certificateCount || 0) || 0))))}</div>
+          </div>
+          <div>
+            <div class="muted small">Aviso</div>
+            <div style="font-weight:700;">${escapeHtml(mailNoticeLabel(ACCOUNT.mailNotice))}</div>
           </div>
           <div style="grid-column:1/-1;">
             <div class="muted small">Comentarios</div>
@@ -256,11 +311,46 @@ function frequencyLabel(account){
 function normalizeStage(s){
   if (s === "contacted") return "prospect";
   if (s === "active") return "account_active";
+  if (s === "inactive") return "account_inactive";
   return s || "prospect";
 }
 
 function stageToAccountStatus(stage){
   return stage === "account_active" ? "active" : "inactive";
+}
+
+function normalizeMailNotice(raw){
+  const v = String(raw || "").trim().toLowerCase();
+  if (!v) return "";
+  if (["mail", "correo", "email"].includes(v)) return "mail";
+  if (v === "cd") return "cd";
+  if (v === "sicop") return "sicop";
+  if (v === "cetronic") return "cetronic";
+  if (["1", "true", "si", "sí", "x", "yes"].includes(v)) return "mail";
+  return "";
+}
+
+function mailNoticeLabel(raw){
+  const v = normalizeMailNotice(raw);
+  if (v === "mail") return "Mail";
+  if (v === "cd") return "CD";
+  if (v === "sicop") return "SICOP";
+  if (v === "cetronic") return "Cetronic";
+  return "Sin definir";
+}
+
+async function deactivateSitesForAccount(accountId){
+  const activeSites = await list("sites", {
+    filters: [
+      { field:"accountId", op:"==", value: accountId },
+      { field:"status", op:"==", value:"active" }
+    ],
+    order: null,
+    max: 500
+  });
+  for (const site of activeSites){
+    await update("sites", site.id, { status:"inactive" }, auth.currentUser);
+  }
 }
 
 function stageLabel(s){
@@ -269,6 +359,7 @@ function stageLabel(s){
   if (n==="offer_sent") return "Oferta enviada";
   if (n==="negotiation") return "Negociación";
   if (n==="account_active") return "Cuenta activa";
+  if (n==="account_inactive") return "Cuenta inactiva";
   if (n==="closed") return "Cerrado";
   return n || "—";
 }
@@ -281,6 +372,10 @@ function openEdit(){
   $("e_visitPeriod").value = ACCOUNT.visitFrequencyPeriod || "week";
   $("e_stage").value = normalizeStage(ACCOUNT.stage);
   $("e_phone").value = ACCOUNT.phone || "";
+  $("e_subcontractor").value = ACCOUNT.subcontractor || "";
+  $("e_sheetCount").value = String(Math.max(0, Math.floor(Number(ACCOUNT.sheetCount || 0) || 0)));
+  $("e_certificateCount").value = String(Math.max(0, Math.floor(Number(ACCOUNT.certificateCount || 0) || 0)));
+  $("e_mailNotice").value = normalizeMailNotice(ACCOUNT.mailNotice);
   $("e_notes").value = ACCOUNT.notes || "";
 }
 function closeEdit(){
@@ -296,12 +391,17 @@ async function saveEdit(){
     stage,
     status: stageToAccountStatus(stage),
     phone: $("e_phone").value.trim(),
+    subcontractor: $("e_subcontractor").value.trim(),
+    sheetCount: Math.max(0, Math.floor(Number($("e_sheetCount").value || 0) || 0)),
+    certificateCount: Math.max(0, Math.floor(Number($("e_certificateCount").value || 0) || 0)),
+    mailNotice: normalizeMailNotice($("e_mailNotice").value),
     notes: $("e_notes").value.trim()
   };
   if (!data.name) return toast("Falta el nombre");
   $("btnSaveEdit").disabled = true;
   try{
     await update("accounts", ACCOUNT.id, data, auth.currentUser);
+    if (data.status === "inactive") await deactivateSitesForAccount(ACCOUNT.id);
     toast("Guardado");
     ACCOUNT = await getById("accounts", ACCOUNT.id);
     closeEdit();
@@ -321,6 +421,10 @@ async function init(){
   const id = getParam("id");
   ACCOUNT = id ? await getById("accounts", id) : null;
   if (ACCOUNT){
+    ACCOUNT_OPTIONS = await list("accounts", {
+      order: { field:"name", dir:"asc" },
+      max: 1000
+    });
     CONTACTS = await list("contacts", {
       filters: [{ field:"accountId", op:"==", value: ACCOUNT.id }],
       order: { field:"updatedAt", dir:"desc" },
