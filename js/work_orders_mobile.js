@@ -166,7 +166,6 @@ function render(){
 
         <div class="field">
           <label>Fecha</label>
-
           <input id="mywo_date" value="${escapeHtml(keyToDisplayDate(filters.date))}" placeholder="DD/MM/YYYY" inputmode="numeric" ${filters.dateMode==="custom"?"":"disabled"} />
         </div>
       </div>
@@ -177,9 +176,7 @@ function render(){
     ${orders.length ? orders.map(order=>`
       <article class="card mywo-card">
         <div class="card-title">OT ${escapeHtml(order.orderNumber || "—")}</div>
-
         <div class="card-sub muted small">${escapeHtml(keyToDisplayDate(normalizeDate(order.visitDate || order.generatedAt) || "") || "—")} · ${escapeHtml(order.accountName || "Sin empresa")} · ${escapeHtml(order.siteName || "Sin predio")}</div>
-
         <div class="card-sub muted small">Empleados: ${escapeHtml(orderEmployeesText(order))}</div>
         <div class="field" style="margin-top:8px;">
           <label>Estado</label>
@@ -216,7 +213,6 @@ function render(){
   });
 
   $("mywo_date").addEventListener("change", ()=>{
-
     const raw = $("mywo_date").value;
     const key = normalizeInputDateToKey(raw);
     if (raw && !key){

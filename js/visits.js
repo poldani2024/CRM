@@ -16,6 +16,7 @@ const PERIOD_DAYS = {
 };
 
 const STATUS_OPTIONS = [
+  { value: "estimated", label: "Estimada", icon: "🟡" },
   { value: "confirmed", label: "Confirmada", icon: "🟠" },
   { value: "in_progress", label: "En ejecución", icon: "🔵" },
   { value: "postponed", label: "Postergada", icon: "🟣" },
@@ -29,7 +30,7 @@ let SITES = [];
 let VISITS = [];
 let EMPLOYEES = [];
 let rangeDays = 30;
-let startDate = startOfDay(new Date());
+let startDate = mondayOfWeek(new Date());
 let selectedAccountId = "";
 let selectedSiteId = "";
 let activeMenuCell = null;
@@ -58,8 +59,23 @@ function parseDateKey(raw){
   return new Date(yyyy, mm - 1, dd);
 }
 
+function mondayOfWeek(d){
+  const n = startOfDay(d);
+  const day = n.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  n.setDate(n.getDate() + diff);
+  return n;
+}
+
+function weekdayLetter(d){
+  const letters = ["D", "L", "M", "X", "J", "V", "S"];
+  return letters[d.getDay()] || "?";
+}
+
 function fmtDate(d){
-  return d.toLocaleDateString("es-AR", { day:"2-digit", month:"2-digit" });
+  const day = d.getDate();
+  const month = d.getMonth() + 1;
+  return `${weekdayLetter(d)} ${day}/${month}`;
 }
 
 function parseVisitDate(v){
@@ -134,7 +150,8 @@ function getVisitMap(){
       id: v.id,
       status: normalizeStatus(v.status),
       siteId: v.siteId,
-      accountId: v.accountId || ""
+      accountId: v.accountId || "",
+      manualEstimated: !!v.estimatedManual
     });
   }
   return map;
@@ -271,7 +288,8 @@ async function saveVisitStatus(status){
     siteId: finalSiteId,
     accountId,
     plannedDate: dKey,
-    status
+    status,
+    estimatedManual: status === "estimated"
   };
 
   try{
@@ -490,6 +508,15 @@ function render(){
   const dateCols = buildDateColumns();
   const accountsById = new Map(ACCOUNTS.map(a=>[a.id, a]));
   const visitMap = getVisitMap();
+  const latestManualEstimatedBySite = new Map();
+  for (const visit of VISITS){
+    if (normalizeStatus(visit?.status) !== "estimated" || !visit?.estimatedManual || !visit?.siteId) continue;
+    const dt = parseVisitDate(visit);
+    if (!dt) continue;
+    const key = dateKey(dt);
+    const current = latestManualEstimatedBySite.get(visit.siteId);
+    if (!current || key > current) latestManualEstimatedBySite.set(visit.siteId, key);
+  }
   const filteredSites = accountFilteredSites();
 
   if (selectedSiteId && !filteredSites.some(s=>s.id === selectedSiteId)){
@@ -535,7 +562,7 @@ function render(){
   c.innerHTML = `
     <div class="section-title">Visitas</div>
 
-    <div class="panel" style="padding:14px;">
+    <div class="panel visits-toolbar-sticky" style="padding:14px;">
       <div class="row" style="gap:12px; flex-wrap:wrap; align-items:flex-end;">
         <div class="field">
           <label>Cuenta</label>
@@ -606,8 +633,8 @@ function render(){
             <th class="sticky-col col-select"><input type="checkbox" id="bulkSelectAll" title="Seleccionar todo" /></th>
             <th class="sticky-col col-account">Cuenta</th>
             <th class="sticky-col col-site">Predio</th>
-            <th class="sticky-col col-address">Domicilio</th>
-            <th class="sticky-col col-city">Ciudad</th>
+            <th class="col-address">Domicilio</th>
+            <th class="col-city">Ciudad</th>
             ${dateCols.map(d=>`<th class="col-date">${fmtDate(d)}</th>`).join("")}
           </tr>
         </thead>
@@ -619,14 +646,21 @@ function render(){
                 <td class="sticky-col col-select"><input type="checkbox" class="visit-row-check" data-site-select="${escapeHtml(site.id)}" ${site.isVirtualMissing?"disabled":""} ${bulkSelectedSiteIds.has(site.id)?"checked":""} /></td>
                 <td class="sticky-col col-account">${escapeHtml(account.name || "—")}</td>
                 <td class="sticky-col col-site">${site.isVirtualMissing ? "⚠ " : ""}${escapeHtml(site.name || "—")}</td>
-                <td class="sticky-col col-address">${escapeHtml(site.address || "—")}</td>
-                <td class="sticky-col col-city">${escapeHtml(site.city || "—")}</td>
+                <td class="col-address">${escapeHtml(site.address || "—")}</td>
+                <td class="col-city">${escapeHtml(site.city || "—")}</td>
                 ${dateCols.map(d=>{
                   const dKey = dateKey(d);
                   const existingVisit = visitMap.get(`${site.id}|${dKey}`);
-                  const status = existingVisit?.status || (estimatedDates.has(dKey) ? "estimated" : "");
-                  const dot = status ? `<span class="visit-dot ${statusClass(status)}"></span>` : "";
-                  const title = status ? statusLabel(status) : "Agregar estado";
+                  const latestManual = latestManualEstimatedBySite.get(site.id) || "";
+                  const autoEstimated = estimatedDates.has(dKey) && (!latestManual || dKey > latestManual);
+                  const status = existingVisit?.status || (autoEstimated ? "estimated" : "");
+                  const manualMark = existingVisit?.status === "estimated" && existingVisit?.manualEstimated
+                    ? `<span class="visit-manual-mark">M</span>`
+                    : "";
+                  const dot = status ? `<span class="visit-dot ${statusClass(status)}"></span>${manualMark}` : "";
+                  const title = existingVisit?.status === "estimated" && existingVisit?.manualEstimated
+                    ? "Estimada (manual)"
+                    : (status ? statusLabel(status) : "Agregar estado");
                   return `<td class="visit-cell" data-visit-cell="1" data-site-id="${escapeHtml(site.id)}" data-account-id="${escapeHtml(account.id)}" data-date="${escapeHtml(dKey)}" title="${escapeHtml(title)}">${dot}</td>`;
                 }).join("")}
               </tr>
@@ -706,7 +740,7 @@ function render(){
       toast("Fecha inválida. Usar formato DD/MM/YYYY");
       return;
     }
-    startDate = dt ? startOfDay(new Date(`${dt}T00:00:00`)) : startOfDay(new Date());
+    startDate = dt ? mondayOfWeek(new Date(`${dt}T00:00:00`)) : mondayOfWeek(new Date());
     rangeDays = Number($("v_horizon").value || 30);
     selectedAccountId = $("v_accountFilter").value;
     selectedSiteId = $("v_siteFilter").value;
