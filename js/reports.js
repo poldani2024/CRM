@@ -1,7 +1,7 @@
 import { loadShell } from "./ui_shell.js";
 import { requireRole } from "./auth.js";
 import { list } from "./data_access.js";
-import { escapeHtml, $ } from "./utils.js";
+import { escapeHtml, $, normalizeInputDateToKey, keyToDisplayDate, toast } from "./utils.js";
 
 let ACCOUNTS = [];
 let SITES = [];
@@ -125,16 +125,30 @@ function operationalData(from, to){
   }
 
   for (const order of ordersInRange){
-    const key = order.employeeId || "__none__";
-    if (!byEmployee.has(key)){
-      byEmployee.set(key, { employee: order.employeeName || "Sin empleado", total: 0, confirmed: 0, doing: 0, done: 0, issues: 0 });
+    const refs = Array.isArray(order?.assignedEmployees) && order.assignedEmployees.length
+      ? order.assignedEmployees
+      : (Array.isArray(order?.employeeIds) && order.employeeIds.length
+        ? order.employeeIds.map((id, idx)=> ({ id, name: order?.employeeNames?.[idx] || "" }))
+        : (order.employeeId ? [{ id: order.employeeId, name: order.employeeName || "" }] : []));
+
+    const normalizedRefs = refs.length
+      ? refs.map(ref=> ({
+          id: String(ref?.id || "").trim(),
+          name: String(ref?.name || "").trim() || "Sin empleado"
+        })).filter(ref=> ref.id)
+      : [{ id: "__none__", name: "Sin empleado" }];
+
+    for (const ref of normalizedRefs){
+      if (!byEmployee.has(ref.id)){
+        byEmployee.set(ref.id, { employee: ref.name, total: 0, confirmed: 0, doing: 0, done: 0, issues: 0 });
+      }
+      const row = byEmployee.get(ref.id);
+      row.total += 1;
+      if (order.status === "Confirmada") row.confirmed += 1;
+      if (order.status === "En ejecución") row.doing += 1;
+      if (order.status === "Concretada") row.done += 1;
+      if (["No realizada", "Cancelada", "Postergada"].includes(order.status)) row.issues += 1;
     }
-    const row = byEmployee.get(key);
-    row.total += 1;
-    if (order.status === "Confirmada") row.confirmed += 1;
-    if (order.status === "En ejecución") row.doing += 1;
-    if (order.status === "Concretada") row.done += 1;
-    if (["No realizada", "Cancelada", "Postergada"].includes(order.status)) row.issues += 1;
   }
 
   const employeesTable = [...byEmployee.values()]
@@ -272,17 +286,17 @@ function render(){
 
         <div class="field">
           <label>Desde</label>
-          <input id="r_from" type="date" value="${escapeHtml(customFrom || toDateKey(from))}" ${dateMode === "custom" ? "" : "disabled"} />
+          <input id="r_from" value="${escapeHtml(keyToDisplayDate(customFrom || toDateKey(from)))}" placeholder="DD/MM/YYYY" inputmode="numeric" ${dateMode === "custom" ? "" : "disabled"} />
         </div>
 
         <div class="field">
           <label>Hasta</label>
-          <input id="r_to" type="date" value="${escapeHtml(customTo || toDateKey(to))}" ${dateMode === "custom" ? "" : "disabled"} />
+          <input id="r_to" value="${escapeHtml(keyToDisplayDate(customTo || toDateKey(to)))}" placeholder="DD/MM/YYYY" inputmode="numeric" ${dateMode === "custom" ? "" : "disabled"} />
         </div>
 
         <button class="btn btn-primary" id="btnRefreshReports">Actualizar</button>
 
-        <div class="muted small">Rango: ${escapeHtml(toDateKey(from))} a ${escapeHtml(toDateKey(to))}</div>
+        <div class="muted small">Rango: ${escapeHtml(keyToDisplayDate(toDateKey(from)))} a ${escapeHtml(keyToDisplayDate(toDateKey(to)))}</div>
       </div>
     </div>
 
@@ -306,13 +320,23 @@ function render(){
   });
 
   $("r_from").addEventListener("change", ()=>{
-    customFrom = $("r_from").value;
+    const key = normalizeInputDateToKey($("r_from").value);
+    if ($("r_from").value && !key){
+      toast("Fecha inválida. Usar formato DD/MM/YYYY");
+      return;
+    }
+    customFrom = key;
     dateMode = "custom";
     render();
   });
 
   $("r_to").addEventListener("change", ()=>{
-    customTo = $("r_to").value;
+    const key = normalizeInputDateToKey($("r_to").value);
+    if ($("r_to").value && !key){
+      toast("Fecha inválida. Usar formato DD/MM/YYYY");
+      return;
+    }
+    customTo = key;
     dateMode = "custom";
     render();
   });

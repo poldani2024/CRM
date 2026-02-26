@@ -3,7 +3,7 @@ import { requireRole } from "./auth.js";
 import { auth } from "./firebase.js";
 import { list, update } from "./data_access.js";
 import { createWorkOrder } from "./work_orders_service.js";
-import { escapeHtml, $, toast } from "./utils.js";
+import { escapeHtml, $, toast, normalizeInputDateToKey, keyToDisplayDate } from "./utils.js";
 
 const ORDER_STATUSES = ["Confirmada", "En ejecución", "Postergada", "Concretada", "No realizada", "Cancelada"];
 
@@ -20,6 +20,7 @@ let VISITS = [];
 let WORK_ORDERS = [];
 let selectedVisitId = "";
 let kanbanViewMode = "employee";
+let onlyUnassignedConfirmed = true;
 
 function parseVisitDate(v){
   const source = v.plannedDate || v.scheduledFor || v.date;
@@ -33,6 +34,53 @@ function parseVisitDate(v){
 
 function employeeLabel(emp){
   return `${emp.lastName || ""}${emp.lastName && emp.firstName ? ", " : ""}${emp.firstName || ""}`.trim() || "—";
+}
+
+function orderEmployeeRefs(order){
+  if (Array.isArray(order?.assignedEmployees) && order.assignedEmployees.length){
+    return order.assignedEmployees
+      .map(emp=> ({ id: String(emp?.id || "").trim(), name: String(emp?.name || "").trim() }))
+      .filter(emp=> emp.id)
+      .map(emp=> ({ ...emp, name: emp.name || "Sin empleado" }));
+  }
+
+  if (Array.isArray(order?.employeeIds) && order.employeeIds.length){
+    return order.employeeIds
+      .map((id, idx)=> ({ id: String(id || "").trim(), name: String(order?.employeeNames?.[idx] || "").trim() }))
+      .filter(emp=> emp.id)
+      .map(emp=> ({ ...emp, name: emp.name || "Sin empleado" }));
+  }
+
+  if (order?.employeeId){
+    return [{ id: order.employeeId, name: order.employeeName || "Sin empleado" }];
+  }
+
+  return [];
+}
+
+function orderEmployeeNames(order){
+  const refs = orderEmployeeRefs(order);
+  if (!refs.length) return "Sin empleado";
+  return refs.map(ref=> ref.name).join(" · ");
+}
+
+function selectedEmployeeIdsFrom(containerSelector){
+  return Array.from(document.querySelectorAll(`${containerSelector} input[type='checkbox']:checked`))
+    .map(input=> String(input.value || ""))
+    .filter(Boolean);
+}
+
+function renderEmployeeChecklist(id){
+  return `
+    <div id="${id}" class="employee-checklist">
+      ${EMPLOYEES.map(emp=>`
+        <label class="employee-check-item">
+          <input type="checkbox" value="${escapeHtml(emp.id)}" />
+          <span>${escapeHtml(employeeLabel(emp))}</span>
+        </label>
+      `).join("")}
+    </div>
+  `;
 }
 
 function mapOrderStatusToVisitStatus(status){
@@ -55,7 +103,7 @@ function kanbanColumnForStatus(status){
 function filteredConfirmedVisits(){
   const accountId = $("f_account")?.value || "";
   const siteId = $("f_site")?.value || "";
-  const date = $("f_date")?.value || "";
+  const date = normalizeInputDateToKey($("f_date")?.value || "");
 
   const visitsWithActiveOrder = new Set(
     WORK_ORDERS
@@ -66,7 +114,7 @@ function filteredConfirmedVisits(){
 
   return VISITS
     .filter(v=> String(v.status || "").toLowerCase() === "confirmed")
-    .filter(v=> !visitsWithActiveOrder.has(v.id))
+    .filter(v=> !onlyUnassignedConfirmed || !visitsWithActiveOrder.has(v.id))
     .filter(v=> !accountId || v.accountId === accountId)
     .filter(v=> !siteId || v.siteId === siteId)
     .filter(v=> !date || parseVisitDate(v) === date)
@@ -80,22 +128,34 @@ function buildKanbanBuckets(){
     for (const order of WORK_ORDERS){
       const col = kanbanColumnForStatus(order.status);
       if (!col) continue;
-      const key = order.employeeId || order.employeeName || `no_emp_${order.id}`;
-      const title = order.employeeName || "Sin empleado";
-      let card = buckets[col].find(c=>c.key === key);
-      if (!card){
-        card = { key, title, subtitle: "", lines: [] };
-        buckets[col].push(card);
+      const refs = orderEmployeeRefs(order);
+      if (!refs.length){
+        const key = `no_emp_${order.id}`;
+        let card = buckets[col].find(c=>c.key === key);
+        if (!card){
+          card = { key, title: "Sin empleado", subtitle: "", lines: [] };
+          buckets[col].push(card);
+        }
+        card.lines.push(`OT ${order.orderNumber || "—"} · ${order.accountName || "—"} · ${order.siteName || "—"} · ${order.status || "—"}`);
+        continue;
       }
-      card.lines.push(`OT ${order.orderNumber || "—"} · ${order.accountName || "—"} · ${order.siteName || "—"} · ${order.status || "—"}`);
+      for (const ref of refs){
+        const key = ref.id;
+        let card = buckets[col].find(c=>c.key === key);
+        if (!card){
+          card = { key, title: ref.name, subtitle: "", lines: [] };
+          buckets[col].push(card);
+        }
+        card.lines.push(`OT ${order.orderNumber || "—"} · ${order.accountName || "—"} · ${order.siteName || "—"} · ${order.status || "—"}`);
+      }
     }
   } else {
     for (const order of WORK_ORDERS){
       const col = kanbanColumnForStatus(order.status);
       if (!col) continue;
-      const key = `${order.accountId || order.accountName || "acc"}|${order.siteId || order.siteName || "site"}|${order.employeeId || order.employeeName || "no_emp"}`;
+      const key = `${order.accountId || order.accountName || "acc"}|${order.siteId || order.siteName || "site"}|${orderEmployeeNames(order) || "no_emp"}`;
       const title = `${order.accountName || "Sin empresa"} · ${order.siteName || "Sin predio"}`;
-      const subtitle = `Empleado: ${order.employeeName || "Sin empleado"}`;
+      const subtitle = `Empleado: ${orderEmployeeNames(order)}`;
       let card = buckets[col].find(c=>c.key === key);
       if (!card){
         card = { key, title, subtitle, lines: [] };
@@ -181,9 +241,13 @@ function render(){
         </div>
         <div class="field">
           <label>Fecha visita</label>
-          <input id="f_date" type="date" />
+          <input id="f_date" placeholder="DD/MM/YYYY" inputmode="numeric" />
         </div>
         <button class="btn" id="btnApplyFilters">Filtrar</button>
+        <label class="row" style="gap:8px; align-items:center; margin-left:6px;">
+          <input type="checkbox" id="f_onlyUnassigned" ${onlyUnassignedConfirmed ? "checked" : ""} />
+          <span class="small">Solo confirmadas pendientes de asignar (sin OT)</span>
+        </label>
       </div>
 
       <div class="spacer"></div>
@@ -194,7 +258,7 @@ function render(){
           const account = ACCOUNTS.find(a=>a.id===v.accountId);
           const selected = selectedVisitId === v.id ? "style=\"border-color:#1a73e8;background:#f1f6ff;\"" : "";
           return `<button class="btn" data-pick-visit="${escapeHtml(v.id)}" ${selected}>
-            ${escapeHtml(parseVisitDate(v) || "—")} · ${escapeHtml(account?.name || "Sin cuenta")} · ${escapeHtml(site?.name || "Sin predio")}
+            ${escapeHtml(keyToDisplayDate(parseVisitDate(v) || "") || "—")} · ${escapeHtml(account?.name || "Sin cuenta")} · ${escapeHtml(site?.name || "Sin predio")}
           </button>`;
         }).join("<div class='spacer'></div>") : `<div class="muted">No hay visitas confirmadas con esos filtros.</div>`}
       </div>
@@ -202,12 +266,13 @@ function render(){
       <div class="spacer"></div>
 
       <div class="row" style="gap:10px; flex-wrap:wrap; align-items:flex-end;">
+        <div class="field" style="min-width:280px;">
+          <label>Empleados asignados</label>
+          ${renderEmployeeChecklist("wo_employees")}
+        </div>
         <div class="field">
-          <label>Empleado</label>
-          <select id="wo_employee">
-            <option value="">Seleccionar empleado</option>
-            ${EMPLOYEES.map(emp=>`<option value="${escapeHtml(emp.id)}">${escapeHtml(employeeLabel(emp))}</option>`).join("")}
-          </select>
+          <label>Horario</label>
+          <input id="wo_schedule" type="time" />
         </div>
         <div class="field" style="min-width:300px; flex:1;">
           <label>Observaciones</label>
@@ -232,7 +297,8 @@ function render(){
             <div>
               <div class="card-title">OT ${escapeHtml(order.orderNumber || "—")}</div>
               <div class="card-sub muted small">Visita: ${escapeHtml(order.visitDate || "—")} · ${escapeHtml(order.accountName || "—")} · ${escapeHtml(order.siteName || "—")}</div>
-              <div class="card-sub muted small">Empleado: ${escapeHtml(order.employeeName || "—")}</div>
+              <div class="card-sub muted small">Empleados: ${escapeHtml(orderEmployeeNames(order))}</div>
+              <div class="card-sub muted small">Horario: ${escapeHtml(order.schedule || "—")}</div>
             </div>
             <div class="row" style="gap:8px; flex-wrap:wrap;">
               <select data-order-status="${escapeHtml(order.id)}">
@@ -252,7 +318,19 @@ function render(){
   `;
 
   $("btnApplyFilters")?.addEventListener("click", ()=>{
+    const rawDate = $("f_date")?.value || "";
+    if (rawDate && !normalizeInputDateToKey(rawDate)){
+      toast("Fecha inválida. Usar formato DD/MM/YYYY");
+      return;
+    }
     selectedVisitId = "";
+    onlyUnassignedConfirmed = !!$("f_onlyUnassigned")?.checked;
+    render();
+  });
+
+  $("f_onlyUnassigned")?.addEventListener("change", ()=>{
+    selectedVisitId = "";
+    onlyUnassignedConfirmed = !!$("f_onlyUnassigned")?.checked;
     render();
   });
 
@@ -281,15 +359,17 @@ function render(){
 
 async function createOrderFromSelectedVisit(){
   if (!selectedVisitId) return toast("Seleccioná una visita confirmada");
-  const employeeId = $("wo_employee").value;
-  if (!employeeId) return toast("Seleccioná un empleado");
+  const employeeIds = selectedEmployeeIdsFrom("#wo_employees");
+  if (!employeeIds.length) return toast("Seleccioná al menos un empleado");
 
   const visit = VISITS.find(v=>v.id === selectedVisitId);
   if (!visit) return toast("No se encontró la visita seleccionada");
 
   const account = ACCOUNTS.find(a=>a.id === visit.accountId);
   const site = SITES.find(s=>s.id === visit.siteId);
-  const employee = EMPLOYEES.find(e=>e.id === employeeId);
+  const employees = employeeIds
+    .map(id=> EMPLOYEES.find(e=>e.id === id))
+    .filter(Boolean);
 
   try{
     const created = await createWorkOrder({
@@ -297,7 +377,8 @@ async function createOrderFromSelectedVisit(){
       visitId: visit.id,
       account,
       site,
-      employee,
+      employees,
+      schedule: $("wo_schedule").value,
       observations: $("wo_observations").value,
       generatedBy: auth.currentUser
     });
@@ -365,6 +446,8 @@ async function cancelOrder(orderId){
 async function loadData(){
   ACCOUNTS = await list("accounts", { filters:[{ field:"status", op:"==", value:"active" }], order:{ field:"name", dir:"asc" }, max:500 });
   SITES = await list("sites", { filters:[{ field:"status", op:"==", value:"active" }], order:{ field:"name", dir:"asc" }, max:1000 });
+  const activeAccountIds = new Set(ACCOUNTS.map(a=>a.id));
+  SITES = SITES.filter(site=> activeAccountIds.has(site.accountId));
   EMPLOYEES = await list("employees", { filters:[{ field:"status", op:"==", value:"active" }], order:{ field:"lastName", dir:"asc" }, max:500 });
   VISITS = await list("visits", { order:null, max:4000 });
   WORK_ORDERS = await list("work_orders", { order:{ field:"createdAt", dir:"desc" }, max:2000 });
