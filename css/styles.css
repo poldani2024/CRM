@@ -356,6 +356,8 @@ a{ color:inherit; text-decoration:none; }
 }
 .col-account.sticky-col{ left: 42px; }
 .col-site.sticky-col{ left: 252px; }
+.col-address.sticky-col{ left: 472px; }
+.col-city.sticky-col{ left: 712px; }
 .gantt-table td.col-account,
 .gantt-table td.col-site,
 .gantt-table td.col-address,
