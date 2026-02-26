@@ -15,6 +15,8 @@ const PERIOD_DAYS = {
   year: 365
 };
 
+const WEEKDAY_TO_INDEX = { L:1, M:2, X:3, J:4, V:5, S:6, D:0 };
+
 const STATUS_OPTIONS = [
   { value: "estimated", label: "Estimada", icon: "🟡" },
   { value: "confirmed", label: "Confirmada", icon: "🟠" },
@@ -90,24 +92,47 @@ function parseVisitDate(v){
   return Number.isNaN(d.getTime()) ? null : startOfDay(d);
 }
 
-function cadenceDays(account){
-  const unit = Math.max(1, Number(account.visitFrequencyUnit || 1));
-  const base = PERIOD_DAYS[account.visitFrequencyPeriod] || 7;
-  return Math.max(1, base / unit);
+function normalizeVisitWeekdays(days){
+  if (!Array.isArray(days)) return [];
+  return Array.from(new Set(days.map(d=> String(d || "").trim().toUpperCase()).filter(d=> d in WEEKDAY_TO_INDEX)));
 }
 
-function planningDatesForSite(account, endDate){
+function resolveVisitConfig(site, account){
+  const unit = Math.max(1, Number(site?.visitFrequencyUnit || account?.visitFrequencyUnit || 1));
+  const period = String(site?.visitFrequencyPeriod || account?.visitFrequencyPeriod || "week");
+  const days = normalizeVisitWeekdays(site?.visitWeekdays?.length ? site.visitWeekdays : account?.visitWeekdays);
+  return { unit, period, days };
+}
+
+function cadenceDays(site, account){
+  const cfg = resolveVisitConfig(site, account);
+  const base = PERIOD_DAYS[cfg.period] || 7;
+  return Math.max(1, base / cfg.unit);
+}
+
+function planningDatesForSite(site, account, endDate){
   const dates = [];
-  const stepDays = cadenceDays(account);
+  const cfg = resolveVisitConfig(site, account);
+  const stepDays = cadenceDays(site, account);
+  const allowedDays = new Set(cfg.days.map(d=> WEEKDAY_TO_INDEX[d]));
   let cursor = new Date(startDate);
 
   while (cursor <= endDate){
-    dates.push(dateKey(cursor));
+    let planned = startOfDay(cursor);
+    if (allowedDays.size){
+      let moved = 0;
+      while (moved < 7 && !allowedDays.has(planned.getDay())){
+        planned = new Date(planned.getTime() + 24 * 60 * 60 * 1000);
+        moved += 1;
+      }
+    }
+
+    if (planned <= endDate) dates.push(dateKey(planned));
     cursor = new Date(cursor.getTime() + stepDays * 24 * 60 * 60 * 1000);
     cursor = startOfDay(cursor);
   }
 
-  return dates;
+  return Array.from(new Set(dates)).sort();
 }
 
 function normalizeStatus(raw){
@@ -174,7 +199,7 @@ function hasAnyVisitInRange(siteId, dateCols, visitMap){
 }
 
 function hasEstimatedInRange(site, account, endDate, dateCols, visitMap){
-  const estimatedDates = new Set(planningDatesForSite(account, endDate));
+  const estimatedDates = new Set(planningDatesForSite(site, account, endDate));
   return dateCols.some(d=>{
     const dKey = dateKey(d);
     return estimatedDates.has(dKey) && !visitMap.has(`${site.id}|${dKey}`);
@@ -640,7 +665,7 @@ function render(){
         </thead>
         <tbody>
           ${rows.map(({ site, account })=>{
-            const estimatedDates = new Set(planningDatesForSite(account, endDate));
+            const estimatedDates = new Set(planningDatesForSite(site, account, endDate));
             return `
               <tr>
                 <td class="sticky-col col-select"><input type="checkbox" class="visit-row-check" data-site-select="${escapeHtml(site.id)}" ${site.isVirtualMissing?"disabled":""} ${bulkSelectedSiteIds.has(site.id)?"checked":""} /></td>

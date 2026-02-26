@@ -40,37 +40,21 @@ export function keyToDisplayDate(raw=""){
   return `${m[3]}/${m[2]}/${m[1]}`;
 }
 
-// utils.js
-export function normalizeInputDateToKey(raw = "") {
-  const v = String(raw ?? "").trim();
+export function normalizeInputDateToKey(raw=""){
+  const v = String(raw || "").trim();
   if (!v) return "";
-
   let y, m, d;
-
-  // Caso 1: YYYY-MM-DD
   let k = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (k) {
-    y = Number(k[1]);
-    m = Number(k[2]);
-    d = Number(k[3]);
+  if (k){
+    y, m, d = Number(k[1]), Number(k[2]), Number(k[3]);
   } else {
-    // Caso 2: D/M/YYYY o DD/MM/YYYY (también admite guiones)
     k = v.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
     if (!k) return "";
-    d = Number(k[1]);
-    m = Number(k[2]);
-    y = Number(k[3]);
+    d, m, y = Number(k[1]), Number(k[2]), Number(k[3]);
   }
-
-  // Validaciones básicas
-  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return "";
-  if (y < 1900 || m < 1 || m > 12 || d < 1 || d > 31) return "";
-
-  // Validación real de calendario (evita 31/02, etc.)
+  if (m < 1 || m > 12 || d < 1 || d > 31 || y < 1900) return "";
   const dt = new Date(y, m - 1, d);
-  if (dt.getFullYear() !== y || dt.getMonth() !== (m - 1) || dt.getDate() !== d) return "";
-
-  // Normaliza a key YYYY-MM-DD
+  if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return "";
   return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 

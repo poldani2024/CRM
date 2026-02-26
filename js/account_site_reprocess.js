@@ -10,6 +10,9 @@ export async function createAutoSiteFromAccount(account, user){
     notes: String(account?.notes || "").trim() || "Generado automáticamente desde reproceso de cuentas.",
     requiresSheet: false,
     requiresCertificate: false,
+    visitFrequencyUnit: Math.max(1, Number(account?.visitFrequencyUnit || 1)),
+    visitFrequencyPeriod: String(account?.visitFrequencyPeriod || "month"),
+    visitWeekdays: Array.isArray(account?.visitWeekdays) ? account.visitWeekdays : [],
     status: account?.status === "inactive" ? "inactive" : "active"
   };
   const id = await create("sites", payload, user);

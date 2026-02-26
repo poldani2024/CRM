@@ -15,6 +15,22 @@ let CONTACTS = [];
 let SITES = [];
 let activeTab = "summary";
 
+const VISIT_WEEKDAYS = ["L","M","X","J","V","S","D"];
+function normalizeVisitWeekdays(raw){
+  if (!Array.isArray(raw)) return [];
+  return Array.from(new Set(raw.map(d=> String(d || "").trim().toUpperCase()).filter(d=> VISIT_WEEKDAYS.includes(d))));
+}
+function collectVisitWeekdays(containerId){
+  return normalizeVisitWeekdays(Array.from(document.querySelectorAll(`#${containerId} [data-weekday]:checked`)).map(i=> i.dataset.weekday));
+}
+function setVisitWeekdays(containerId, days){
+  const selected = new Set(normalizeVisitWeekdays(days));
+  document.querySelectorAll(`#${containerId} [data-weekday]`).forEach(input=>{
+    input.checked = selected.has(String(input.dataset.weekday || "").toUpperCase());
+  });
+}
+
+
 function subcontractorOptions(){
   return Array.from(new Set(
     ACCOUNT_OPTIONS
@@ -103,6 +119,18 @@ function render(){
               <option value="month">Mes</option>
               <option value="year">Año</option>
             </select>
+          </div>
+          <div class="field" style="grid-column:1/-1;">
+            <label>Días posibles de visita</label>
+            <div id="e_visitWeekdays" class="row" style="gap:12px; flex-wrap:wrap;">
+              <label class="row" style="gap:6px; align-items:center;"><input type="checkbox" data-weekday="L" /> <span>L</span></label>
+              <label class="row" style="gap:6px; align-items:center;"><input type="checkbox" data-weekday="M" /> <span>M</span></label>
+              <label class="row" style="gap:6px; align-items:center;"><input type="checkbox" data-weekday="X" /> <span>X</span></label>
+              <label class="row" style="gap:6px; align-items:center;"><input type="checkbox" data-weekday="J" /> <span>J</span></label>
+              <label class="row" style="gap:6px; align-items:center;"><input type="checkbox" data-weekday="V" /> <span>V</span></label>
+              <label class="row" style="gap:6px; align-items:center;"><input type="checkbox" data-weekday="S" /> <span>S</span></label>
+              <label class="row" style="gap:6px; align-items:center;"><input type="checkbox" data-weekday="D" /> <span>D</span></label>
+            </div>
           </div>
 
           <div class="field">
@@ -370,6 +398,7 @@ function openEdit(){
   $("e_type").value = ACCOUNT.type || "bank";
   $("e_visitUnit").value = String(Math.max(1, Number(ACCOUNT.visitFrequencyUnit || 1)));
   $("e_visitPeriod").value = ACCOUNT.visitFrequencyPeriod || "week";
+  setVisitWeekdays("e_visitWeekdays", ACCOUNT.visitWeekdays || []);
   $("e_stage").value = normalizeStage(ACCOUNT.stage);
   $("e_phone").value = ACCOUNT.phone || "";
   $("e_subcontractor").value = ACCOUNT.subcontractor || "";
@@ -388,6 +417,7 @@ async function saveEdit(){
     type: $("e_type").value,
     visitFrequencyUnit: Math.max(1, Number($("e_visitUnit").value || 1)),
     visitFrequencyPeriod: $("e_visitPeriod").value,
+    visitWeekdays: collectVisitWeekdays("e_visitWeekdays"),
     stage,
     status: stageToAccountStatus(stage),
     phone: $("e_phone").value.trim(),

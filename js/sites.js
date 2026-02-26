@@ -14,6 +14,29 @@ let ACCOUNTS = [];
 let accountIdPrefill = null;
 let editingSiteId = null;
 
+const VISIT_WEEKDAYS = ["L","M","X","J","V","S","D"];
+function normalizeVisitWeekdays(raw){
+  if (!Array.isArray(raw)) return [];
+  return Array.from(new Set(raw.map(d=> String(d || "").trim().toUpperCase()).filter(d=> VISIT_WEEKDAYS.includes(d))));
+}
+function collectVisitWeekdays(containerId){
+  return normalizeVisitWeekdays(Array.from(document.querySelectorAll(`#${containerId} [data-weekday]:checked`)).map(i=> i.dataset.weekday));
+}
+function setVisitWeekdays(containerId, days){
+  const selected = new Set(normalizeVisitWeekdays(days));
+  document.querySelectorAll(`#${containerId} [data-weekday]`).forEach(input=>{
+    input.checked = selected.has(String(input.dataset.weekday || "").toUpperCase());
+  });
+}
+function applyAccountVisitDefaults(accountId){
+  const account = ACCOUNTS.find(a=>a.id === accountId);
+  if (!account) return;
+  $("s_visitUnit").value = String(Math.max(1, Number(account.visitFrequencyUnit || 1)));
+  $("s_visitPeriod").value = account.visitFrequencyPeriod || "month";
+  setVisitWeekdays("s_visitWeekdays", account.visitWeekdays || []);
+}
+
+
 function parseCsv(text){
   const rows = [];
   let row = [];
@@ -123,6 +146,9 @@ async function importSitesFromCsv(file){
       notes: String(row.site_notes || row.notes || "").trim(),
       requiresSheet: parseBool(row.requires_sheet),
       requiresCertificate: parseBool(row.requires_certificate),
+      visitFrequencyUnit: Math.max(1, Number(account.visitFrequencyUnit || 1)),
+      visitFrequencyPeriod: account.visitFrequencyPeriod || "month",
+      visitWeekdays: normalizeVisitWeekdays(account.visitWeekdays || []),
       status: normalizeStatus(row.status)
     }, auth.currentUser);
     keySet.add(key);
@@ -145,8 +171,12 @@ function openCreateModal(){
   $("s_notes").value = "";
   $("s_requiresSheet").checked = false;
   $("s_requiresCertificate").checked = false;
+  $("s_visitUnit").value = "1";
+  $("s_visitPeriod").value = "month";
+  setVisitWeekdays("s_visitWeekdays", []);
 
   if (accountIdPrefill) $("s_accountId").value = accountIdPrefill;
+  applyAccountVisitDefaults($("s_accountId").value);
   $("modalBackdrop").style.display = "flex";
 }
 
@@ -165,6 +195,9 @@ function openEditModal(siteId){
   $("s_notes").value = site.notes || "";
   $("s_requiresSheet").checked = !!site.requiresSheet;
   $("s_requiresCertificate").checked = !!site.requiresCertificate;
+  $("s_visitUnit").value = String(Math.max(1, Number(site.visitFrequencyUnit || 1)));
+  $("s_visitPeriod").value = site.visitFrequencyPeriod || "month";
+  setVisitWeekdays("s_visitWeekdays", site.visitWeekdays || []);
 
   $("modalBackdrop").style.display = "flex";
 }
@@ -254,6 +287,34 @@ function render(){
             <input id="s_city" placeholder="Ej: Rosario" />
           </div>
 
+          <div class="field">
+            <label>Frecuencia visita (unidad mensual)</label>
+            <input id="s_visitUnit" type="number" min="1" step="1" value="1" />
+          </div>
+
+          <div class="field">
+            <label>Frecuencia visita (período)</label>
+            <select id="s_visitPeriod">
+              <option value="month">Mes</option>
+              <option value="week">Semana</option>
+              <option value="day">Día</option>
+              <option value="year">Año</option>
+            </select>
+          </div>
+
+          <div class="field" style="grid-column:1/-1;">
+            <label>Días posibles de visita</label>
+            <div id="s_visitWeekdays" class="row" style="gap:12px; flex-wrap:wrap;">
+              <label class="row" style="gap:6px; align-items:center;"><input type="checkbox" data-weekday="L" /> <span>L</span></label>
+              <label class="row" style="gap:6px; align-items:center;"><input type="checkbox" data-weekday="M" /> <span>M</span></label>
+              <label class="row" style="gap:6px; align-items:center;"><input type="checkbox" data-weekday="X" /> <span>X</span></label>
+              <label class="row" style="gap:6px; align-items:center;"><input type="checkbox" data-weekday="J" /> <span>J</span></label>
+              <label class="row" style="gap:6px; align-items:center;"><input type="checkbox" data-weekday="V" /> <span>V</span></label>
+              <label class="row" style="gap:6px; align-items:center;"><input type="checkbox" data-weekday="S" /> <span>S</span></label>
+              <label class="row" style="gap:6px; align-items:center;"><input type="checkbox" data-weekday="D" /> <span>D</span></label>
+            </div>
+          </div>
+
 
           <div class="field" style="grid-column:1/-1;">
             <label>Documentación requerida</label>
@@ -316,6 +377,7 @@ function render(){
     .join("");
 
   if (accountIdPrefill && !editingSiteId) $("s_accountId").value = accountIdPrefill;
+  $("s_accountId").addEventListener("change", ()=>{ if (!editingSiteId) applyAccountVisitDefaults($("s_accountId").value); });
 }
 
 async function saveSite(){
@@ -327,6 +389,9 @@ async function saveSite(){
     notes: $("s_notes").value.trim(),
     requiresSheet: $("s_requiresSheet").checked,
     requiresCertificate: $("s_requiresCertificate").checked,
+    visitFrequencyUnit: Math.max(1, Number($("s_visitUnit").value || 1)),
+    visitFrequencyPeriod: $("s_visitPeriod").value,
+    visitWeekdays: collectVisitWeekdays("s_visitWeekdays"),
     status: "active"
   };
 

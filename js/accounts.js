@@ -13,6 +13,29 @@ const STAGES = [
   { key:"closed", label:"Cerrado" }
 ];
 
+const VISIT_WEEKDAYS = ["L","M","X","J","V","S","D"];
+
+function normalizeVisitWeekdays(raw){
+  if (!Array.isArray(raw)) return [];
+  return Array.from(new Set(raw.map(d=> String(d || "").trim().toUpperCase()).filter(d=> VISIT_WEEKDAYS.includes(d))));
+}
+
+function collectVisitWeekdays(containerId){
+  return normalizeVisitWeekdays(Array.from(document.querySelectorAll(`#${containerId} [data-weekday]:checked`)).map(i=> i.dataset.weekday));
+}
+
+function setVisitWeekdays(containerId, days){
+  const selected = new Set(normalizeVisitWeekdays(days));
+  document.querySelectorAll(`#${containerId} [data-weekday]`).forEach(input=>{
+    input.checked = selected.has(String(input.dataset.weekday || "").toUpperCase());
+  });
+}
+
+function parseVisitWeekdaysCsv(raw){
+  const parts = String(raw || "").split(/[;,|\s]+/).map(x=>x.trim()).filter(Boolean);
+  return normalizeVisitWeekdays(parts);
+}
+
 let PROFILE = null;
 let ACCOUNTS = [];
 let accountFilters = {
@@ -103,6 +126,7 @@ function closeModal(){
   $("a_type").value = "bank";
   $("a_visitUnit").value = "1";
   $("a_visitPeriod").value = "week";
+  setVisitWeekdays("a_visitWeekdays", []);
   $("a_stage").value = "prospect";
 }
 
@@ -131,7 +155,6 @@ function normalizeDisplayDate(raw){
   const d = new Date(yyyy, mm - 1, dd);
   if (d.getFullYear() !== yyyy || d.getMonth() !== mm - 1 || d.getDate() !== dd) return "";
   return `${String(dd).padStart(2, "0")}/${String(mm).padStart(2, "0")}/${String(yyyy)}`;
-
 }
 
 function normalizeText(raw){
@@ -324,7 +347,6 @@ function renderBoard(){
       toast("Fecha inválida. Usar formato DD/MM/YYYY");
       return;
     }
-
     renderBoard();
   });
 
@@ -568,7 +590,8 @@ async function importAccountsFromCsv(file){
         stage,
         status: stageToAccountStatus(stage),
         visitFrequencyUnit: freq,
-        visitFrequencyPeriod: 'month'
+        visitFrequencyPeriod: 'month',
+        visitWeekdays: parseVisitWeekdaysCsv(row.visit_weekdays)
       };
       const id = await create('accounts', payload, auth.currentUser);
       account = { id, ...payload };
@@ -623,6 +646,7 @@ function wireModal(){
       type: $("a_type").value,
       visitFrequencyUnit: Math.max(1, Number($("a_visitUnit").value || 1)),
       visitFrequencyPeriod: $("a_visitPeriod").value,
+      visitWeekdays: collectVisitWeekdays("a_visitWeekdays"),
       stage,
       phone: $("a_phone").value.trim(),
       subcontractor: $("a_subcontractor").value.trim(),
