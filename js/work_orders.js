@@ -21,6 +21,7 @@ let WORK_ORDERS = [];
 let selectedVisitId = "";
 let kanbanViewMode = "employee";
 let onlyUnassignedConfirmed = true;
+let rescheduleOrderId = "";
 
 function parseVisitDate(v){
   const source = v.plannedDate || v.scheduledFor || v.date;
@@ -68,6 +69,14 @@ function selectedEmployeeIdsFrom(containerSelector){
   return Array.from(document.querySelectorAll(`${containerSelector} input[type='checkbox']:checked`))
     .map(input=> String(input.value || ""))
     .filter(Boolean);
+}
+
+
+function setChecklistSelection(containerSelector, employeeIds){
+  const selected = new Set((employeeIds || []).map(id=> String(id || "").trim()));
+  document.querySelectorAll(`${containerSelector} input[type='checkbox']`).forEach(input=>{
+    input.checked = selected.has(String(input.value || "").trim());
+  });
 }
 
 function renderEmployeeChecklist(id){
@@ -175,7 +184,7 @@ function buildKanbanBuckets(){
 function renderKanban(){
   const buckets = buildKanbanBuckets();
   return `
-    <div class="panel" style="padding:14px;">
+    <div class="panel workorders-panel" style="padding:14px;">
       <div class="row" style="justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:flex-end;">
         <div>
           <div style="font-weight:700;">Tablero Kanban de órdenes</div>
@@ -212,6 +221,27 @@ function renderKanban(){
         `).join("")}
       </div>
     </div>
+
+    <div class="modal-backdrop" id="rescheduleBackdrop">
+      <div class="modal" style="max-width:620px;">
+        <div class="modal-head">
+          <div class="modal-title">Reprogramar orden</div>
+          <button class="btn btn-ghost" id="btnCloseReschedule">✕</button>
+        </div>
+        <div class="spacer"></div>
+        <div class="field"><label>Orden</label><div id="res_order" class="muted">—</div></div>
+        <div class="field"><label>Nueva fecha</label><input id="res_newDate" placeholder="DD/MM/YYYY" inputmode="numeric" /></div>
+        <div class="field"><label>Empleados reasignados</label>${renderEmployeeChecklist("res_employees")}</div>
+        <div class="field"><label>Horario</label><input id="res_schedule" type="time" /></div>
+        <div class="field"><label>Motivo</label><input id="res_reason" placeholder="Motivo de reprogramación" /></div>
+        <div class="modal-actions">
+          <button class="btn" id="btnCancelReschedule">Cancelar</button>
+          <button class="btn btn-primary" id="btnSaveReschedule">Guardar reprogramación</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
   `;
 }
 
@@ -220,6 +250,7 @@ function render(){
   const visits = filteredConfirmedVisits();
 
   c.innerHTML = `
+    <div class="workorders-page">
     <div class="section-title">Órdenes de trabajo</div>
 
     <div class="panel" style="padding:14px;">
@@ -252,7 +283,7 @@ function render(){
 
       <div class="spacer"></div>
 
-      <div class="panel" style="padding:10px; border:1px dashed var(--line);">
+      <div class="panel workorders-visits-list" style="padding:10px; border:1px dashed var(--line);">
         ${visits.length ? visits.map(v=>{
           const site = SITES.find(s=>s.id===v.siteId);
           const account = ACCOUNTS.find(a=>a.id===v.accountId);
@@ -288,15 +319,15 @@ function render(){
 
     <div class="spacer"></div>
 
-    <div class="panel" style="padding:14px;">
+    <div class="panel workorders-panel" style="padding:14px;">
       <div style="font-weight:700;">Órdenes registradas</div>
       <div class="spacer"></div>
       ${WORK_ORDERS.length ? WORK_ORDERS.map(order=>`
-        <div class="card" style="margin-bottom:10px;">
+        <div class="card workorder-card" style="margin-bottom:10px;">
           <div class="row" style="justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:flex-start;">
             <div>
               <div class="card-title">OT ${escapeHtml(order.orderNumber || "—")}</div>
-              <div class="card-sub muted small">Visita: ${escapeHtml(order.visitDate || "—")} · ${escapeHtml(order.accountName || "—")} · ${escapeHtml(order.siteName || "—")}</div>
+              <div class="card-sub muted small">Visita: ${escapeHtml(keyToDisplayDate(order.visitDate || "") || "—")} · ${escapeHtml(order.accountName || "—")} · ${escapeHtml(order.siteName || "—")}</div>
               <div class="card-sub muted small">Empleados: ${escapeHtml(orderEmployeeNames(order))}</div>
               <div class="card-sub muted small">Horario: ${escapeHtml(order.schedule || "—")}</div>
             </div>
@@ -305,6 +336,7 @@ function render(){
                 ${ORDER_STATUSES.map(st=>`<option value="${escapeHtml(st)}" ${order.status===st?"selected":""}>${escapeHtml(st)}</option>`).join("")}
               </select>
               <button class="btn" data-save-order="${escapeHtml(order.id)}">Guardar</button>
+              <button class="btn" data-reschedule-order="${escapeHtml(order.id)}">Reprogramar</button>
               <button class="btn" data-cancel-order="${escapeHtml(order.id)}">Anular</button>
             </div>
           </div>
@@ -315,6 +347,27 @@ function render(){
         </div>
       `).join("") : `<div class="muted">Sin órdenes todavía.</div>`}
     </div>
+
+    <div class="modal-backdrop" id="rescheduleBackdrop">
+      <div class="modal" style="max-width:620px;">
+        <div class="modal-head">
+          <div class="modal-title">Reprogramar orden</div>
+          <button class="btn btn-ghost" id="btnCloseReschedule">✕</button>
+        </div>
+        <div class="spacer"></div>
+        <div class="field"><label>Orden</label><div id="res_order" class="muted">—</div></div>
+        <div class="field"><label>Nueva fecha</label><input id="res_newDate" placeholder="DD/MM/YYYY" inputmode="numeric" /></div>
+        <div class="field"><label>Empleados reasignados</label>${renderEmployeeChecklist("res_employees")}</div>
+        <div class="field"><label>Horario</label><input id="res_schedule" type="time" /></div>
+        <div class="field"><label>Motivo</label><input id="res_reason" placeholder="Motivo de reprogramación" /></div>
+        <div class="modal-actions">
+          <button class="btn" id="btnCancelReschedule">Cancelar</button>
+          <button class="btn btn-primary" id="btnSaveReschedule">Guardar reprogramación</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
   `;
 
   $("btnApplyFilters")?.addEventListener("click", ()=>{
@@ -355,6 +408,102 @@ function render(){
   c.querySelectorAll("[data-cancel-order]").forEach(btn=>{
     btn.addEventListener("click", ()=> cancelOrder(btn.dataset.cancelOrder));
   });
+
+  c.querySelectorAll("[data-reschedule-order]").forEach(btn=>{
+    btn.addEventListener("click", ()=> openRescheduleModal(btn.dataset.rescheduleOrder));
+  });
+
+  $("btnCloseReschedule")?.addEventListener("click", closeRescheduleModal);
+  $("btnCancelReschedule")?.addEventListener("click", closeRescheduleModal);
+  $("btnSaveReschedule")?.addEventListener("click", saveReschedule);
+}
+
+
+function openRescheduleModal(orderId){
+  const order = WORK_ORDERS.find(o=>o.id === orderId);
+  if (!order) return toast("No se encontró la orden");
+  rescheduleOrderId = orderId;
+  $("res_order").textContent = `OT ${order.orderNumber || "—"} · ${order.accountName || "—"} · ${order.siteName || "—"}`;
+  $("res_newDate").value = keyToDisplayDate(order.visitDate || "");
+  $("res_schedule").value = String(order.schedule || "");
+  $("res_reason").value = "";
+  $("rescheduleBackdrop").style.display = "flex";
+  setChecklistSelection("#res_employees", orderEmployeeRefs(order).map(ref=> ref.id));
+}
+
+function closeRescheduleModal(){
+  rescheduleOrderId = "";
+  if ($("rescheduleBackdrop")) $("rescheduleBackdrop").style.display = "none";
+}
+
+async function saveReschedule(){
+  if (!rescheduleOrderId) return;
+  const order = WORK_ORDERS.find(o=>o.id === rescheduleOrderId);
+  if (!order) return toast("No se encontró la orden");
+
+  const newDate = normalizeInputDateToKey($("res_newDate")?.value || "");
+  if (!newDate) return toast("Fecha inválida. Usar formato DD/MM/YYYY");
+
+  const employeeIds = selectedEmployeeIdsFrom("#res_employees");
+  if (!employeeIds.length) return toast("Seleccioná al menos un empleado");
+
+  const employees = employeeIds.map(id=> EMPLOYEES.find(e=>e.id===id)).filter(Boolean);
+  if (!employees.length) return toast("No se pudieron resolver empleados");
+
+  const assignedEmployees = employees.map(emp=> ({
+    id: String(emp.id || "").trim(),
+    name: employeeLabel(emp)
+  }));
+
+  const reason = String($("res_reason")?.value || "").trim();
+  const schedule = String($("res_schedule")?.value || "").trim();
+  const history = Array.isArray(order.rescheduleHistory) ? [...order.rescheduleHistory] : [];
+  history.push({
+    at: new Date().toISOString(),
+    byUid: auth.currentUser?.uid || "",
+    byName: auth.currentUser?.displayName || auth.currentUser?.email || "",
+    reason,
+    fromDate: String(order.visitDate || ""),
+    toDate: newDate,
+    fromEmployeeIds: orderEmployeeRefs(order).map(ref=> ref.id),
+    fromEmployeeNames: orderEmployeeRefs(order).map(ref=> ref.name),
+    toEmployeeIds: assignedEmployees.map(ref=> ref.id),
+    toEmployeeNames: assignedEmployees.map(ref=> ref.name)
+  });
+
+  try{
+    await update("work_orders", order.id, {
+      visitDate: newDate,
+      schedule,
+      employeeId: assignedEmployees[0]?.id || "",
+      employeeName: assignedEmployees[0]?.name || "",
+      employeeIds: assignedEmployees.map(ref=> ref.id),
+      employeeNames: assignedEmployees.map(ref=> ref.name),
+      assignedEmployees,
+      status: "Confirmada",
+      rescheduleCount: Number(order.rescheduleCount || 0) + 1,
+      rescheduleHistory: history
+    }, auth.currentUser);
+
+    if (order.visitId){
+      await update("visits", order.visitId, {
+        plannedDate: newDate,
+        status: "confirmed",
+        assignedEmployeeId: assignedEmployees[0]?.id || "",
+        assignedEmployeeName: assignedEmployees[0]?.name || "",
+        assignedEmployeeIds: assignedEmployees.map(ref=> ref.id),
+        assignedEmployeeNames: assignedEmployees.map(ref=> ref.name)
+      }, auth.currentUser);
+    }
+
+    closeRescheduleModal();
+    toast("Orden reprogramada");
+    await loadData();
+    render();
+  } catch(err){
+    console.error(err);
+    toast(err?.message || "No se pudo reprogramar");
+  }
 }
 
 async function createOrderFromSelectedVisit(){

@@ -536,3 +536,28 @@ a{ color:inherit; text-decoration:none; }
   border-radius: 8px;
   background: #eef5ff !important;
 }
+
+/* ====== work orders desktop UX ====== */
+.workorders-page{
+  max-width: 100%;
+  overflow-x: hidden;
+}
+.workorders-panel{
+  max-width: 100%;
+  overflow: hidden;
+}
+.workorders-visits-list{
+  max-height: 220px;
+  overflow: auto;
+}
+.workorder-card{
+  border-left: 4px solid #1a73e8;
+}
+.workorders-page .board{
+  grid-template-columns: repeat(3, minmax(280px, 1fr));
+}
+@media (max-width: 1200px){
+  .workorders-page .board{
+    grid-template-columns: 1fr;
+  }
+}
