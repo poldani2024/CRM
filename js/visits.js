@@ -2,8 +2,11 @@ import { loadShell } from "./ui_shell.js";
 import { requireRole } from "./auth.js";
 import { auth } from "./firebase.js";
 import { list, create, update, remove } from "./data_access.js";
-import { escapeHtml, $, toast } from "./utils.js";
+import { escapeHtml, $, toast, normalizeInputDateToKey, keyToDisplayDate, formatDateAR } from "./utils.js";
 import { createWorkOrder } from "./work_orders_service.js";
+import { ensureSiteForAccount } from "./account_site_reprocess.js";
+
+const MISSING_SITE_PREFIX = "__missing_site__:";
 
 const PERIOD_DAYS = {
   day: 1,
@@ -12,7 +15,10 @@ const PERIOD_DAYS = {
   year: 365
 };
 
+const WEEKDAY_TO_INDEX = { L:1, M:2, X:3, J:4, V:5, S:6, D:0 };
+
 const STATUS_OPTIONS = [
+  { value: "estimated", label: "Estimada", icon: "🟡" },
   { value: "confirmed", label: "Confirmada", icon: "🟠" },
   { value: "in_progress", label: "En ejecución", icon: "🔵" },
   { value: "postponed", label: "Postergada", icon: "🟣" },
@@ -26,12 +32,13 @@ let SITES = [];
 let VISITS = [];
 let EMPLOYEES = [];
 let rangeDays = 30;
-let startDate = startOfDay(new Date());
+let startDate = mondayOfWeek(new Date());
 let selectedAccountId = "";
 let selectedSiteId = "";
 let activeMenuCell = null;
 let selectedVisitForOrder = null;
 let bulkSelectedSiteIds = new Set();
+let showPendingOnly = false;
 
 function startOfDay(d){
   const n = new Date(d);
@@ -48,13 +55,29 @@ function dateKey(d){
 }
 
 function parseDateKey(raw){
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(raw || ""))) return null;
-  const [yyyy, mm, dd] = String(raw).split("-").map(Number);
+  const key = normalizeInputDateToKey(raw);
+  if (!key) return null;
+  const [yyyy, mm, dd] = key.split("-").map(Number);
   return new Date(yyyy, mm - 1, dd);
 }
 
+function mondayOfWeek(d){
+  const n = startOfDay(d);
+  const day = n.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  n.setDate(n.getDate() + diff);
+  return n;
+}
+
+function weekdayLetter(d){
+  const letters = ["D", "L", "M", "X", "J", "V", "S"];
+  return letters[d.getDay()] || "?";
+}
+
 function fmtDate(d){
-  return d.toLocaleDateString("es-AR", { day:"2-digit", month:"2-digit" });
+  const day = d.getDate();
+  const month = d.getMonth() + 1;
+  return `${weekdayLetter(d)} ${day}/${month}`;
 }
 
 function parseVisitDate(v){
@@ -69,24 +92,47 @@ function parseVisitDate(v){
   return Number.isNaN(d.getTime()) ? null : startOfDay(d);
 }
 
-function cadenceDays(account){
-  const unit = Math.max(1, Number(account.visitFrequencyUnit || 1));
-  const base = PERIOD_DAYS[account.visitFrequencyPeriod] || 7;
-  return Math.max(1, base / unit);
+function normalizeVisitWeekdays(days){
+  if (!Array.isArray(days)) return [];
+  return Array.from(new Set(days.map(d=> String(d || "").trim().toUpperCase()).filter(d=> d in WEEKDAY_TO_INDEX)));
 }
 
-function planningDatesForSite(account, endDate){
+function resolveVisitConfig(site, account){
+  const unit = Math.max(1, Number(site?.visitFrequencyUnit || account?.visitFrequencyUnit || 1));
+  const period = String(site?.visitFrequencyPeriod || account?.visitFrequencyPeriod || "week");
+  const days = normalizeVisitWeekdays(site?.visitWeekdays?.length ? site.visitWeekdays : account?.visitWeekdays);
+  return { unit, period, days };
+}
+
+function cadenceDays(site, account){
+  const cfg = resolveVisitConfig(site, account);
+  const base = PERIOD_DAYS[cfg.period] || 7;
+  return Math.max(1, base / cfg.unit);
+}
+
+function planningDatesForSite(site, account, endDate){
   const dates = [];
-  const stepDays = cadenceDays(account);
+  const cfg = resolveVisitConfig(site, account);
+  const stepDays = cadenceDays(site, account);
+  const allowedDays = new Set(cfg.days.map(d=> WEEKDAY_TO_INDEX[d]));
   let cursor = new Date(startDate);
 
   while (cursor <= endDate){
-    dates.push(dateKey(cursor));
+    let planned = startOfDay(cursor);
+    if (allowedDays.size){
+      let moved = 0;
+      while (moved < 7 && !allowedDays.has(planned.getDay())){
+        planned = new Date(planned.getTime() + 24 * 60 * 60 * 1000);
+        moved += 1;
+      }
+    }
+
+    if (planned <= endDate) dates.push(dateKey(planned));
     cursor = new Date(cursor.getTime() + stepDays * 24 * 60 * 60 * 1000);
     cursor = startOfDay(cursor);
   }
 
-  return dates;
+  return Array.from(new Set(dates)).sort();
 }
 
 function normalizeStatus(raw){
@@ -129,7 +175,8 @@ function getVisitMap(){
       id: v.id,
       status: normalizeStatus(v.status),
       siteId: v.siteId,
-      accountId: v.accountId || ""
+      accountId: v.accountId || "",
+      manualEstimated: !!v.estimatedManual
     });
   }
   return map;
@@ -145,6 +192,18 @@ function buildDateColumns(){
 
 function accountFilteredSites(){
   return SITES.filter(site=> !selectedAccountId || site.accountId === selectedAccountId);
+}
+
+function hasAnyVisitInRange(siteId, dateCols, visitMap){
+  return dateCols.some(d=> visitMap.has(`${siteId}|${dateKey(d)}`));
+}
+
+function hasEstimatedInRange(site, account, endDate, dateCols, visitMap){
+  const estimatedDates = new Set(planningDatesForSite(site, account, endDate));
+  return dateCols.some(d=>{
+    const dKey = dateKey(d);
+    return estimatedDates.has(dKey) && !visitMap.has(`${site.id}|${dKey}`);
+  });
 }
 
 function hideContextMenu(){
@@ -222,16 +281,40 @@ async function saveVisitStatus(status){
   if (!activeMenuCell) return;
 
   const { siteId, accountId, dKey } = activeMenuCell;
+  let finalSiteId = siteId;
+
+  if (String(siteId || "").startsWith(MISSING_SITE_PREFIX)){
+    const account = ACCOUNTS.find(a=>a.id === accountId);
+    if (!account){
+      hideContextMenu();
+      return toast("No se encontró la cuenta para autogenerar predio");
+    }
+
+    const ok = window.confirm("Esta cuenta no tiene predio. ¿Querés autogenerar el predio ahora para registrar la visita?");
+    if (!ok){
+      hideContextMenu();
+      return toast("Operación cancelada");
+    }
+
+    const generatedSite = await ensureSiteForAccount(account, auth.currentUser);
+    if (!generatedSite?.id){
+      hideContextMenu();
+      return toast("No se pudo generar el predio automáticamente");
+    }
+    finalSiteId = generatedSite.id;
+  }
+
   const existing = VISITS.find(v=>{
     const dt = parseVisitDate(v);
-    return dt && v.siteId === siteId && dateKey(dt) === dKey;
+    return dt && v.siteId === finalSiteId && dateKey(dt) === dKey;
   });
 
   const payload = {
-    siteId,
+    siteId: finalSiteId,
     accountId,
     plannedDate: dKey,
-    status
+    status,
+    estimatedManual: status === "estimated"
   };
 
   try{
@@ -279,6 +362,21 @@ function employeeLabel(emp){
   return `${emp.lastName || ""}${emp.lastName && emp.firstName ? ", " : ""}${emp.firstName || ""}`.trim() || "—";
 }
 
+function selectedOrderEmployeeIds(){
+  return Array.from(document.querySelectorAll("#order_employees input[type='checkbox']:checked"))
+    .map(input=> String(input.value || ""))
+    .filter(Boolean);
+}
+
+function renderOrderEmployeesChecklist(){
+  return EMPLOYEES.map(emp=>`
+    <label class="employee-check-item">
+      <input type="checkbox" value="${escapeHtml(emp.id)}" />
+      <span>${escapeHtml(employeeLabel(emp))}</span>
+    </label>
+  `).join("");
+}
+
 function openAssignOrderModal(visitId){
   const visit = VISITS.find(v=>v.id === visitId);
   if (!visit) return toast("No se encontró la visita confirmada");
@@ -291,7 +389,8 @@ function openAssignOrderModal(visitId){
   const site = SITES.find(s=>s.id === visit.siteId);
   $("order_visitAccount").textContent = account?.name || "—";
   $("order_visitSite").textContent = site?.name || "—";
-  $("order_employee").innerHTML = `<option value="">Seleccionar</option>${EMPLOYEES.map(emp=>`<option value="${escapeHtml(emp.id)}">${escapeHtml(employeeLabel(emp))}</option>`).join("")}`;
+  $("order_employees").innerHTML = renderOrderEmployeesChecklist();
+  $("order_schedule").value = "";
   $("order_observations").value = "";
   $("orderModalBackdrop").style.display = "flex";
 }
@@ -303,10 +402,12 @@ function closeAssignOrderModal(){
 
 async function createOrderFromVisit(){
   if (!selectedVisitForOrder) return;
-  const employeeId = $("order_employee").value;
-  if (!employeeId) return toast("Seleccioná un empleado");
+  const employeeIds = selectedOrderEmployeeIds();
+  if (!employeeIds.length) return toast("Seleccioná al menos un empleado");
 
-  const employee = EMPLOYEES.find(e=>e.id === employeeId);
+  const employees = employeeIds
+    .map(id=> EMPLOYEES.find(e=>e.id === id))
+    .filter(Boolean);
   const account = ACCOUNTS.find(a=>a.id === selectedVisitForOrder.accountId);
   const site = SITES.find(s=>s.id === selectedVisitForOrder.siteId);
 
@@ -316,7 +417,8 @@ async function createOrderFromVisit(){
       visitId: selectedVisitForOrder.id,
       account,
       site,
-      employee,
+      employees,
+      schedule: $("order_schedule").value,
       observations: $("order_observations").value,
       generatedBy: auth.currentUser
     });
@@ -348,7 +450,7 @@ function updateBulkSelectionUI(visibleRows){
 function openBulkPlanModal(){
   const selectedCount = [...bulkSelectedSiteIds].length;
   if (!selectedCount) return toast("Seleccioná al menos un predio");
-  $("bulk_visitDate").value = dateKey(new Date());
+  $("bulk_visitDate").value = keyToDisplayDate(dateKey(new Date()));
   $("bulk_visitStatus").value = "confirmed";
   $("bulk_selectedInfo").textContent = `${selectedCount} predios seleccionados`;
   $("bulkPlanBackdrop").style.display = "flex";
@@ -359,7 +461,7 @@ function closeBulkPlanModal(){
 }
 
 async function saveBulkPlannedVisits(){
-  const plannedDate = $("bulk_visitDate").value;
+  const plannedDate = normalizeInputDateToKey($("bulk_visitDate").value);
   const status = $("bulk_visitStatus").value;
   if (!plannedDate) return toast("Seleccioná la fecha");
   if (!status) return toast("Seleccioná un estado");
@@ -431,6 +533,15 @@ function render(){
   const dateCols = buildDateColumns();
   const accountsById = new Map(ACCOUNTS.map(a=>[a.id, a]));
   const visitMap = getVisitMap();
+  const latestManualEstimatedBySite = new Map();
+  for (const visit of VISITS){
+    if (normalizeStatus(visit?.status) !== "estimated" || !visit?.estimatedManual || !visit?.siteId) continue;
+    const dt = parseVisitDate(visit);
+    if (!dt) continue;
+    const key = dateKey(dt);
+    const current = latestManualEstimatedBySite.get(visit.siteId);
+    if (!current || key > current) latestManualEstimatedBySite.set(visit.siteId, key);
+  }
   const filteredSites = accountFilteredSites();
 
   if (selectedSiteId && !filteredSites.some(s=>s.id === selectedSiteId)){
@@ -440,6 +551,12 @@ function render(){
   const rows = filteredSites
     .map(site=>({ site, account: accountsById.get(site.accountId) }))
     .filter(row=>row.account)
+    .filter(row=>{
+      if (!showPendingOnly) return true;
+      const hasVisit = hasAnyVisitInRange(row.site.id, dateCols, visitMap);
+      const hasEstimated = hasEstimatedInRange(row.site, row.account, endDate, dateCols, visitMap);
+      return !hasVisit && hasEstimated;
+    })
     .filter(row=> !selectedSiteId || row.site.id === selectedSiteId)
     .sort((a,b)=>{
       const an = (a.account.name || "").localeCompare(b.account.name || "");
@@ -447,13 +564,30 @@ function render(){
       return (a.site.name || "").localeCompare(b.site.name || "");
     });
 
+  if (selectedAccountId && !rows.length){
+    const account = accountsById.get(selectedAccountId);
+    if (account){
+      rows.push({
+        account,
+        site: {
+          id: `${MISSING_SITE_PREFIX}${account.id}`,
+          accountId: account.id,
+          name: "Sin predio generado",
+          address: "",
+          city: "",
+          isVirtualMissing: true
+        }
+      });
+    }
+  }
+
   const rowIds = new Set(rows.map(r=>r.site.id));
   bulkSelectedSiteIds = new Set([...bulkSelectedSiteIds].filter(id=>rowIds.has(id)));
 
   c.innerHTML = `
     <div class="section-title">Visitas</div>
 
-    <div class="panel" style="padding:14px;">
+    <div class="panel visits-toolbar-sticky" style="padding:14px;">
       <div class="row" style="gap:12px; flex-wrap:wrap; align-items:flex-end;">
         <div class="field">
           <label>Cuenta</label>
@@ -477,7 +611,7 @@ function render(){
 
         <div class="field">
           <label>Desde fecha</label>
-          <input id="v_start" type="date" value="${dateKey(startDate)}" />
+          <input id="v_start" value="${keyToDisplayDate(dateKey(startDate))}" placeholder="DD/MM/YYYY" inputmode="numeric" />
         </div>
 
         <div class="field">
@@ -493,6 +627,11 @@ function render(){
         <button class="btn btn-primary" id="btnRefreshVisits">Actualizar vista</button>
 
         <button class="btn" id="btnBulkPlan" ${bulkSelectedSiteIds.size?"":"disabled"}>Planificar selección</button>
+
+        <label class="row" style="gap:8px; align-items:center; margin-left:6px;">
+          <input type="checkbox" id="v_pendingOnly" ${showPendingOnly?"checked":""} />
+          <span class="small">Pendientes de programar</span>
+        </label>
 
         <div class="muted small">Predios planificados: ${rows.length} · Seleccionados: <span id="bulkSelectedCount">0</span> · Hasta ${escapeHtml(endDate.toLocaleDateString("es-AR"))}</div>
       </div>
@@ -519,23 +658,34 @@ function render(){
             <th class="sticky-col col-select"><input type="checkbox" id="bulkSelectAll" title="Seleccionar todo" /></th>
             <th class="sticky-col col-account">Cuenta</th>
             <th class="sticky-col col-site">Predio</th>
+            <th class="col-address">Domicilio</th>
+            <th class="col-city">Ciudad</th>
             ${dateCols.map(d=>`<th class="col-date">${fmtDate(d)}</th>`).join("")}
           </tr>
         </thead>
         <tbody>
           ${rows.map(({ site, account })=>{
-            const estimatedDates = new Set(planningDatesForSite(account, endDate));
+            const estimatedDates = new Set(planningDatesForSite(site, account, endDate));
             return `
               <tr>
-                <td class="sticky-col col-select"><input type="checkbox" class="visit-row-check" data-site-select="${escapeHtml(site.id)}" ${bulkSelectedSiteIds.has(site.id)?"checked":""} /></td>
+                <td class="sticky-col col-select"><input type="checkbox" class="visit-row-check" data-site-select="${escapeHtml(site.id)}" ${site.isVirtualMissing?"disabled":""} ${bulkSelectedSiteIds.has(site.id)?"checked":""} /></td>
                 <td class="sticky-col col-account">${escapeHtml(account.name || "—")}</td>
-                <td class="sticky-col col-site">${escapeHtml(site.name || "—")}</td>
+                <td class="sticky-col col-site">${site.isVirtualMissing ? "⚠ " : ""}${escapeHtml(site.name || "—")}</td>
+                <td class="col-address">${escapeHtml(site.address || "—")}</td>
+                <td class="col-city">${escapeHtml(site.city || "—")}</td>
                 ${dateCols.map(d=>{
                   const dKey = dateKey(d);
                   const existingVisit = visitMap.get(`${site.id}|${dKey}`);
-                  const status = existingVisit?.status || (estimatedDates.has(dKey) ? "estimated" : "");
-                  const dot = status ? `<span class="visit-dot ${statusClass(status)}"></span>` : "";
-                  const title = status ? statusLabel(status) : "Agregar estado";
+                  const latestManual = latestManualEstimatedBySite.get(site.id) || "";
+                  const autoEstimated = estimatedDates.has(dKey) && (!latestManual || dKey > latestManual);
+                  const status = existingVisit?.status || (autoEstimated ? "estimated" : "");
+                  const manualMark = existingVisit?.status === "estimated" && existingVisit?.manualEstimated
+                    ? `<span class="visit-manual-mark">M</span>`
+                    : "";
+                  const dot = status ? `<span class="visit-dot ${statusClass(status)}"></span>${manualMark}` : "";
+                  const title = existingVisit?.status === "estimated" && existingVisit?.manualEstimated
+                    ? "Estimada (manual)"
+                    : (status ? statusLabel(status) : "Agregar estado");
                   return `<td class="visit-cell" data-visit-cell="1" data-site-id="${escapeHtml(site.id)}" data-account-id="${escapeHtml(account.id)}" data-date="${escapeHtml(dKey)}" title="${escapeHtml(title)}">${dot}</td>`;
                 }).join("")}
               </tr>
@@ -556,7 +706,7 @@ function render(){
         <div class="spacer"></div>
         <div class="muted small" id="bulk_selectedInfo">0 predios seleccionados</div>
         <div class="spacer"></div>
-        <div class="field"><label>Fecha para todos</label><input type="date" id="bulk_visitDate" value="${dateKey(new Date())}" /></div>
+        <div class="field"><label>Fecha para todos</label><input id="bulk_visitDate" value="${keyToDisplayDate(dateKey(new Date()))}" placeholder="DD/MM/YYYY" inputmode="numeric" /></div>
         <div class="field">
           <label>Estado para todos</label>
           <select id="bulk_visitStatus">${STATUS_OPTIONS.map(opt=>`<option value="${escapeHtml(opt.value)}">${escapeHtml(opt.label)}</option>`).join("")}</select>
@@ -578,7 +728,8 @@ function render(){
         <div class="field"><label>Fecha visita</label><div id="order_visitDate" class="muted">—</div></div>
         <div class="field"><label>Empresa</label><div id="order_visitAccount" class="muted">—</div></div>
         <div class="field"><label>Predio</label><div id="order_visitSite" class="muted">—</div></div>
-        <div class="field"><label>Empleado asignado</label><select id="order_employee"></select></div>
+        <div class="field"><label>Empleados asignados</label><div id="order_employees" class="employee-checklist"></div></div>
+        <div class="field"><label>Horario</label><input id="order_schedule" type="time" /></div>
         <div class="field"><label>Observaciones</label><textarea id="order_observations"></textarea></div>
         <div class="modal-actions">
           <button class="btn" id="btnCancelOrderModal">Cancelar</button>
@@ -601,12 +752,24 @@ function render(){
     render();
   });
 
+  $("v_pendingOnly")?.addEventListener("change", ()=>{
+    showPendingOnly = !!$("v_pendingOnly").checked;
+    selectedSiteId = "";
+    hideContextMenu();
+    render();
+  });
+
   $("btnRefreshVisits").addEventListener("click", ()=>{
-    const dt = $("v_start").value;
-    startDate = dt ? startOfDay(new Date(`${dt}T00:00:00`)) : startOfDay(new Date());
+    const dt = normalizeInputDateToKey($("v_start").value);
+    if ($("v_start").value && !dt){
+      toast("Fecha inválida. Usar formato DD/MM/YYYY");
+      return;
+    }
+    startDate = dt ? mondayOfWeek(new Date(`${dt}T00:00:00`)) : mondayOfWeek(new Date());
     rangeDays = Number($("v_horizon").value || 30);
     selectedAccountId = $("v_accountFilter").value;
     selectedSiteId = $("v_siteFilter").value;
+    showPendingOnly = !!$("v_pendingOnly")?.checked;
     hideContextMenu();
     render();
   });
@@ -661,6 +824,8 @@ async function loadData(){
     order: { field:"name", dir:"asc" },
     max: 1000
   });
+  const activeAccountIds = new Set(ACCOUNTS.map(a=>a.id));
+  SITES = SITES.filter(site=> activeAccountIds.has(site.accountId));
 
   try{
     VISITS = await list("visits", {
