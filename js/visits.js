@@ -93,8 +93,26 @@ function parseVisitDate(v){
 }
 
 function normalizeVisitWeekdays(days){
-  if (!Array.isArray(days)) return [];
-  return Array.from(new Set(days.map(d=> String(d || "").trim().toUpperCase()).filter(d=> d in WEEKDAY_TO_INDEX)));
+  const source = Array.isArray(days)
+    ? days
+    : (typeof days === "string" ? String(days).split(/[;,|\s]+/) : []);
+
+  const alias = {
+    LUNES: "L", LUN: "L", MONDAY: "L", MON: "L",
+    MARTES: "M", MAR: "M", TUESDAY: "M", TUE: "M",
+    MIERCOLES: "X", MIER: "X", MIE: "X", WEDNESDAY: "X", WED: "X",
+    JUEVES: "J", JUE: "J", THURSDAY: "J", THU: "J",
+    VIERNES: "V", VIE: "V", FRIDAY: "V", FRI: "V",
+    SABADO: "S", SAB: "S", SATURDAY: "S", SAT: "S",
+    DOMINGO: "D", DOM: "D", SUNDAY: "D", SUN: "D"
+  };
+
+  return Array.from(new Set(
+    source
+      .map(d=> String(d || "").normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toUpperCase())
+      .map(d=> alias[d] || d)
+      .filter(d=> d in WEEKDAY_TO_INDEX)
+  ));
 }
 
 function resolveVisitConfig(site, account){

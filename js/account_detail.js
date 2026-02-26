@@ -17,8 +17,8 @@ let activeTab = "summary";
 
 const VISIT_WEEKDAYS = ["L","M","X","J","V","S","D"];
 function normalizeVisitWeekdays(raw){
-  if (!Array.isArray(raw)) return [];
-  return Array.from(new Set(raw.map(d=> String(d || "").trim().toUpperCase()).filter(d=> VISIT_WEEKDAYS.includes(d))));
+  const source = Array.isArray(raw) ? raw : (typeof raw === "string" ? String(raw).split(/[;,|\s]+/) : []);
+  return Array.from(new Set(source.map(d=> String(d || "").trim().toUpperCase()).filter(d=> VISIT_WEEKDAYS.includes(d))));
 }
 function collectVisitWeekdays(containerId){
   return normalizeVisitWeekdays(Array.from(document.querySelectorAll(`#${containerId} [data-weekday]:checked`)).map(i=> i.dataset.weekday));
