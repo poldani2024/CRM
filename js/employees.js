@@ -2,7 +2,7 @@ import { loadShell } from "./ui_shell.js";
 import { requireRole } from "./auth.js";
 import { auth } from "./firebase.js";
 import { list, create, update } from "./data_access.js";
-import { escapeHtml, $, toast } from "./utils.js";
+import { escapeHtml, $, toast, normalizeInputDateToKey, keyToDisplayDate } from "./utils.js";
 
 const EMPLOYEE_ROLES = ["Gerente", "Supervisor", "Administrativo", "Operario", "Otro"];
 const WORKING_DAY_OPTIONS = [
@@ -63,17 +63,17 @@ function openEditModal(employeeId){
   $("e_address").value = employee.address || "";
   $("e_phone").value = employee.phone || "";
   $("e_dni").value = employee.dni || "";
-  $("e_birthDate").value = employee.birthDate || "";
+  $("e_birthDate").value = keyToDisplayDate(employee.birthDate || "");
   $("e_workingDays").value = employee.workingDays || "monday_friday";
   $("e_workStart").value = employee.workStart || "08:00";
   $("e_workEnd").value = employee.workEnd || "18:00";
-  $("e_hireDate").value = employee.hireDate || "";
-  $("e_terminationDate").value = employee.terminationDate || "";
+  $("e_hireDate").value = keyToDisplayDate(employee.hireDate || "");
+  $("e_terminationDate").value = keyToDisplayDate(employee.terminationDate || "");
   $("e_role").value = employee.employeeRole || EMPLOYEE_ROLES[0];
   $("e_comments").value = employee.comments || "";
   $("e_availability").value = employee.availabilityStatus || "Activo";
-  $("e_availabilityFrom").value = employee.availabilityFrom || "";
-  $("e_availabilityTo").value = employee.availabilityTo || "";
+  $("e_availabilityFrom").value = keyToDisplayDate(employee.availabilityFrom || "");
+  $("e_availabilityTo").value = keyToDisplayDate(employee.availabilityTo || "");
 
   $("modalBackdrop").style.display = "flex";
 }
@@ -158,7 +158,7 @@ function render(){
 
           <div class="field">
             <label>Fecha de nacimiento</label>
-            <input id="e_birthDate" type="date" />
+            <input id="e_birthDate" placeholder="DD/MM/YYYY" inputmode="numeric" />
           </div>
           <div class="field">
             <label>Rol</label>
@@ -184,11 +184,11 @@ function render(){
 
           <div class="field">
             <label>Fecha ingreso</label>
-            <input id="e_hireDate" type="date" />
+            <input id="e_hireDate" placeholder="DD/MM/YYYY" inputmode="numeric" />
           </div>
           <div class="field">
             <label>Fecha egreso</label>
-            <input id="e_terminationDate" type="date" />
+            <input id="e_terminationDate" placeholder="DD/MM/YYYY" inputmode="numeric" />
           </div>
 
           <div class="field">
@@ -200,9 +200,9 @@ function render(){
           <div class="field">
             <label>Estado desde / hasta</label>
             <div class="row" style="gap:8px; align-items:center;">
-              <input id="e_availabilityFrom" type="date" style="max-width:180px;" />
+              <input id="e_availabilityFrom" placeholder="DD/MM/YYYY" inputmode="numeric" style="max-width:180px;" />
               <span class="muted small">a</span>
-              <input id="e_availabilityTo" type="date" style="max-width:180px;" />
+              <input id="e_availabilityTo" placeholder="DD/MM/YYYY" inputmode="numeric" style="max-width:180px;" />
             </div>
           </div>
 
@@ -239,23 +239,29 @@ async function saveEmployee(){
   if (!firstName || !lastName) return toast("Nombre y apellido son obligatorios");
   if (workStart >= workEnd) return toast("El horario de fin debe ser mayor al de inicio");
 
+  const dateFields = ["e_birthDate", "e_hireDate", "e_terminationDate", "e_availabilityFrom", "e_availabilityTo"];
+  for (const id of dateFields){
+    const raw = $(id).value;
+    if (raw && !normalizeInputDateToKey(raw)) return toast("Fecha inválida. Usar formato DD/MM/YYYY");
+  }
+
   const payload = {
     firstName,
     lastName,
     address: $("e_address").value.trim(),
     phone: $("e_phone").value.trim(),
     dni: $("e_dni").value.trim(),
-    birthDate: $("e_birthDate").value,
+    birthDate: normalizeInputDateToKey($("e_birthDate").value),
     workingDays: $("e_workingDays").value,
     workStart,
     workEnd,
-    hireDate: $("e_hireDate").value,
-    terminationDate: $("e_terminationDate").value,
+    hireDate: normalizeInputDateToKey($("e_hireDate").value),
+    terminationDate: normalizeInputDateToKey($("e_terminationDate").value),
     employeeRole: $("e_role").value,
     comments: $("e_comments").value.trim(),
     availabilityStatus: $("e_availability").value,
-    availabilityFrom: $("e_availabilityFrom").value,
-    availabilityTo: $("e_availabilityTo").value,
+    availabilityFrom: normalizeInputDateToKey($("e_availabilityFrom").value),
+    availabilityTo: normalizeInputDateToKey($("e_availabilityTo").value),
     status: "active"
   };
 
