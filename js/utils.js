@@ -46,11 +46,15 @@ export function normalizeInputDateToKey(raw=""){
   let y, m, d;
   let k = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (k){
-    y, m, d = Number(k[1]), Number(k[2]), Number(k[3]);
+    y = Number(k[1]);
+    m = Number(k[2]);
+    d = Number(k[3]);
   } else {
     k = v.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
     if (!k) return "";
-    d, m, y = Number(k[1]), Number(k[2]), Number(k[3]);
+    d = Number(k[1]);
+    m = Number(k[2]);
+    y = Number(k[3]);
   }
   if (m < 1 || m > 12 || d < 1 || d > 31 || y < 1900) return "";
   const dt = new Date(y, m - 1, d);
