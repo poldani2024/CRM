@@ -3,7 +3,7 @@ import { requireRole } from "./auth.js";
 import { auth } from "./firebase.js";
 import { list, update } from "./data_access.js";
 import { createWorkOrder } from "./work_orders_service.js";
-import { escapeHtml, $, toast } from "./utils.js";
+import { escapeHtml, $, toast, normalizeInputDateToKey, keyToDisplayDate } from "./utils.js";
 
 const ORDER_STATUSES = ["Confirmada", "En ejecución", "Postergada", "Concretada", "No realizada", "Cancelada"];
 
@@ -20,6 +20,8 @@ let VISITS = [];
 let WORK_ORDERS = [];
 let selectedVisitId = "";
 let kanbanViewMode = "employee";
+let onlyUnassignedConfirmed = true;
+let rescheduleOrderId = "";
 
 function parseVisitDate(v){
   const source = v.plannedDate || v.scheduledFor || v.date;
@@ -33,6 +35,61 @@ function parseVisitDate(v){
 
 function employeeLabel(emp){
   return `${emp.lastName || ""}${emp.lastName && emp.firstName ? ", " : ""}${emp.firstName || ""}`.trim() || "—";
+}
+
+function orderEmployeeRefs(order){
+  if (Array.isArray(order?.assignedEmployees) && order.assignedEmployees.length){
+    return order.assignedEmployees
+      .map(emp=> ({ id: String(emp?.id || "").trim(), name: String(emp?.name || "").trim() }))
+      .filter(emp=> emp.id)
+      .map(emp=> ({ ...emp, name: emp.name || "Sin empleado" }));
+  }
+
+  if (Array.isArray(order?.employeeIds) && order.employeeIds.length){
+    return order.employeeIds
+      .map((id, idx)=> ({ id: String(id || "").trim(), name: String(order?.employeeNames?.[idx] || "").trim() }))
+      .filter(emp=> emp.id)
+      .map(emp=> ({ ...emp, name: emp.name || "Sin empleado" }));
+  }
+
+  if (order?.employeeId){
+    return [{ id: order.employeeId, name: order.employeeName || "Sin empleado" }];
+  }
+
+  return [];
+}
+
+function orderEmployeeNames(order){
+  const refs = orderEmployeeRefs(order);
+  if (!refs.length) return "Sin empleado";
+  return refs.map(ref=> ref.name).join(" · ");
+}
+
+function selectedEmployeeIdsFrom(containerSelector){
+  return Array.from(document.querySelectorAll(`${containerSelector} input[type='checkbox']:checked`))
+    .map(input=> String(input.value || ""))
+    .filter(Boolean);
+}
+
+
+function setChecklistSelection(containerSelector, employeeIds){
+  const selected = new Set((employeeIds || []).map(id=> String(id || "").trim()));
+  document.querySelectorAll(`${containerSelector} input[type='checkbox']`).forEach(input=>{
+    input.checked = selected.has(String(input.value || "").trim());
+  });
+}
+
+function renderEmployeeChecklist(id){
+  return `
+    <div id="${id}" class="employee-checklist">
+      ${EMPLOYEES.map(emp=>`
+        <label class="employee-check-item">
+          <input type="checkbox" value="${escapeHtml(emp.id)}" />
+          <span>${escapeHtml(employeeLabel(emp))}</span>
+        </label>
+      `).join("")}
+    </div>
+  `;
 }
 
 function mapOrderStatusToVisitStatus(status){
@@ -55,7 +112,7 @@ function kanbanColumnForStatus(status){
 function filteredConfirmedVisits(){
   const accountId = $("f_account")?.value || "";
   const siteId = $("f_site")?.value || "";
-  const date = $("f_date")?.value || "";
+  const date = normalizeInputDateToKey($("f_date")?.value || "");
 
   const visitsWithActiveOrder = new Set(
     WORK_ORDERS
@@ -66,7 +123,7 @@ function filteredConfirmedVisits(){
 
   return VISITS
     .filter(v=> String(v.status || "").toLowerCase() === "confirmed")
-    .filter(v=> !visitsWithActiveOrder.has(v.id))
+    .filter(v=> !onlyUnassignedConfirmed || !visitsWithActiveOrder.has(v.id))
     .filter(v=> !accountId || v.accountId === accountId)
     .filter(v=> !siteId || v.siteId === siteId)
     .filter(v=> !date || parseVisitDate(v) === date)
@@ -80,22 +137,34 @@ function buildKanbanBuckets(){
     for (const order of WORK_ORDERS){
       const col = kanbanColumnForStatus(order.status);
       if (!col) continue;
-      const key = order.employeeId || order.employeeName || `no_emp_${order.id}`;
-      const title = order.employeeName || "Sin empleado";
-      let card = buckets[col].find(c=>c.key === key);
-      if (!card){
-        card = { key, title, subtitle: "", lines: [] };
-        buckets[col].push(card);
+      const refs = orderEmployeeRefs(order);
+      if (!refs.length){
+        const key = `no_emp_${order.id}`;
+        let card = buckets[col].find(c=>c.key === key);
+        if (!card){
+          card = { key, title: "Sin empleado", subtitle: "", lines: [] };
+          buckets[col].push(card);
+        }
+        card.lines.push(`OT ${order.orderNumber || "—"} · ${order.accountName || "—"} · ${order.siteName || "—"} · ${order.status || "—"}`);
+        continue;
       }
-      card.lines.push(`OT ${order.orderNumber || "—"} · ${order.accountName || "—"} · ${order.siteName || "—"} · ${order.status || "—"}`);
+      for (const ref of refs){
+        const key = ref.id;
+        let card = buckets[col].find(c=>c.key === key);
+        if (!card){
+          card = { key, title: ref.name, subtitle: "", lines: [] };
+          buckets[col].push(card);
+        }
+        card.lines.push(`OT ${order.orderNumber || "—"} · ${order.accountName || "—"} · ${order.siteName || "—"} · ${order.status || "—"}`);
+      }
     }
   } else {
     for (const order of WORK_ORDERS){
       const col = kanbanColumnForStatus(order.status);
       if (!col) continue;
-      const key = `${order.accountId || order.accountName || "acc"}|${order.siteId || order.siteName || "site"}|${order.employeeId || order.employeeName || "no_emp"}`;
+      const key = `${order.accountId || order.accountName || "acc"}|${order.siteId || order.siteName || "site"}|${orderEmployeeNames(order) || "no_emp"}`;
       const title = `${order.accountName || "Sin empresa"} · ${order.siteName || "Sin predio"}`;
-      const subtitle = `Empleado: ${order.employeeName || "Sin empleado"}`;
+      const subtitle = `Empleado: ${orderEmployeeNames(order)}`;
       let card = buckets[col].find(c=>c.key === key);
       if (!card){
         card = { key, title, subtitle, lines: [] };
@@ -115,7 +184,7 @@ function buildKanbanBuckets(){
 function renderKanban(){
   const buckets = buildKanbanBuckets();
   return `
-    <div class="panel" style="padding:14px;">
+    <div class="panel workorders-panel" style="padding:14px;">
       <div class="row" style="justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:flex-end;">
         <div>
           <div style="font-weight:700;">Tablero Kanban de órdenes</div>
@@ -152,6 +221,27 @@ function renderKanban(){
         `).join("")}
       </div>
     </div>
+
+    <div class="modal-backdrop" id="rescheduleBackdrop">
+      <div class="modal" style="max-width:620px;">
+        <div class="modal-head">
+          <div class="modal-title">Reprogramar orden</div>
+          <button class="btn btn-ghost" id="btnCloseReschedule">✕</button>
+        </div>
+        <div class="spacer"></div>
+        <div class="field"><label>Orden</label><div id="res_order" class="muted">—</div></div>
+        <div class="field"><label>Nueva fecha</label><input id="res_newDate" placeholder="DD/MM/YYYY" inputmode="numeric" /></div>
+        <div class="field"><label>Empleados reasignados</label>${renderEmployeeChecklist("res_employees")}</div>
+        <div class="field"><label>Horario</label><input id="res_schedule" type="time" /></div>
+        <div class="field"><label>Motivo</label><input id="res_reason" placeholder="Motivo de reprogramación" /></div>
+        <div class="modal-actions">
+          <button class="btn" id="btnCancelReschedule">Cancelar</button>
+          <button class="btn btn-primary" id="btnSaveReschedule">Guardar reprogramación</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
   `;
 }
 
@@ -160,6 +250,7 @@ function render(){
   const visits = filteredConfirmedVisits();
 
   c.innerHTML = `
+    <div class="workorders-page">
     <div class="section-title">Órdenes de trabajo</div>
 
     <div class="panel" style="padding:14px;">
@@ -181,20 +272,24 @@ function render(){
         </div>
         <div class="field">
           <label>Fecha visita</label>
-          <input id="f_date" type="date" />
+          <input id="f_date" placeholder="DD/MM/YYYY" inputmode="numeric" />
         </div>
         <button class="btn" id="btnApplyFilters">Filtrar</button>
+        <label class="row" style="gap:8px; align-items:center; margin-left:6px;">
+          <input type="checkbox" id="f_onlyUnassigned" ${onlyUnassignedConfirmed ? "checked" : ""} />
+          <span class="small">Solo confirmadas pendientes de asignar (sin OT)</span>
+        </label>
       </div>
 
       <div class="spacer"></div>
 
-      <div class="panel" style="padding:10px; border:1px dashed var(--line);">
+      <div class="panel workorders-visits-list" style="padding:10px; border:1px dashed var(--line);">
         ${visits.length ? visits.map(v=>{
           const site = SITES.find(s=>s.id===v.siteId);
           const account = ACCOUNTS.find(a=>a.id===v.accountId);
           const selected = selectedVisitId === v.id ? "style=\"border-color:#1a73e8;background:#f1f6ff;\"" : "";
           return `<button class="btn" data-pick-visit="${escapeHtml(v.id)}" ${selected}>
-            ${escapeHtml(parseVisitDate(v) || "—")} · ${escapeHtml(account?.name || "Sin cuenta")} · ${escapeHtml(site?.name || "Sin predio")}
+            ${escapeHtml(keyToDisplayDate(parseVisitDate(v) || "") || "—")} · ${escapeHtml(account?.name || "Sin cuenta")} · ${escapeHtml(site?.name || "Sin predio")}
           </button>`;
         }).join("<div class='spacer'></div>") : `<div class="muted">No hay visitas confirmadas con esos filtros.</div>`}
       </div>
@@ -202,12 +297,13 @@ function render(){
       <div class="spacer"></div>
 
       <div class="row" style="gap:10px; flex-wrap:wrap; align-items:flex-end;">
+        <div class="field" style="min-width:280px;">
+          <label>Empleados asignados</label>
+          ${renderEmployeeChecklist("wo_employees")}
+        </div>
         <div class="field">
-          <label>Empleado</label>
-          <select id="wo_employee">
-            <option value="">Seleccionar empleado</option>
-            ${EMPLOYEES.map(emp=>`<option value="${escapeHtml(emp.id)}">${escapeHtml(employeeLabel(emp))}</option>`).join("")}
-          </select>
+          <label>Horario</label>
+          <input id="wo_schedule" type="time" />
         </div>
         <div class="field" style="min-width:300px; flex:1;">
           <label>Observaciones</label>
@@ -223,22 +319,24 @@ function render(){
 
     <div class="spacer"></div>
 
-    <div class="panel" style="padding:14px;">
+    <div class="panel workorders-panel" style="padding:14px;">
       <div style="font-weight:700;">Órdenes registradas</div>
       <div class="spacer"></div>
       ${WORK_ORDERS.length ? WORK_ORDERS.map(order=>`
-        <div class="card" style="margin-bottom:10px;">
+        <div class="card workorder-card" style="margin-bottom:10px;">
           <div class="row" style="justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:flex-start;">
             <div>
               <div class="card-title">OT ${escapeHtml(order.orderNumber || "—")}</div>
-              <div class="card-sub muted small">Visita: ${escapeHtml(order.visitDate || "—")} · ${escapeHtml(order.accountName || "—")} · ${escapeHtml(order.siteName || "—")}</div>
-              <div class="card-sub muted small">Empleado: ${escapeHtml(order.employeeName || "—")}</div>
+              <div class="card-sub muted small">Visita: ${escapeHtml(keyToDisplayDate(order.visitDate || "") || "—")} · ${escapeHtml(order.accountName || "—")} · ${escapeHtml(order.siteName || "—")}</div>
+              <div class="card-sub muted small">Empleados: ${escapeHtml(orderEmployeeNames(order))}</div>
+              <div class="card-sub muted small">Horario: ${escapeHtml(order.schedule || "—")}</div>
             </div>
             <div class="row" style="gap:8px; flex-wrap:wrap;">
               <select data-order-status="${escapeHtml(order.id)}">
                 ${ORDER_STATUSES.map(st=>`<option value="${escapeHtml(st)}" ${order.status===st?"selected":""}>${escapeHtml(st)}</option>`).join("")}
               </select>
               <button class="btn" data-save-order="${escapeHtml(order.id)}">Guardar</button>
+              <button class="btn" data-reschedule-order="${escapeHtml(order.id)}">Reprogramar</button>
               <button class="btn" data-cancel-order="${escapeHtml(order.id)}">Anular</button>
             </div>
           </div>
@@ -249,10 +347,43 @@ function render(){
         </div>
       `).join("") : `<div class="muted">Sin órdenes todavía.</div>`}
     </div>
+
+    <div class="modal-backdrop" id="rescheduleBackdrop">
+      <div class="modal" style="max-width:620px;">
+        <div class="modal-head">
+          <div class="modal-title">Reprogramar orden</div>
+          <button class="btn btn-ghost" id="btnCloseReschedule">✕</button>
+        </div>
+        <div class="spacer"></div>
+        <div class="field"><label>Orden</label><div id="res_order" class="muted">—</div></div>
+        <div class="field"><label>Nueva fecha</label><input id="res_newDate" placeholder="DD/MM/YYYY" inputmode="numeric" /></div>
+        <div class="field"><label>Empleados reasignados</label>${renderEmployeeChecklist("res_employees")}</div>
+        <div class="field"><label>Horario</label><input id="res_schedule" type="time" /></div>
+        <div class="field"><label>Motivo</label><input id="res_reason" placeholder="Motivo de reprogramación" /></div>
+        <div class="modal-actions">
+          <button class="btn" id="btnCancelReschedule">Cancelar</button>
+          <button class="btn btn-primary" id="btnSaveReschedule">Guardar reprogramación</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
   `;
 
   $("btnApplyFilters")?.addEventListener("click", ()=>{
+    const rawDate = $("f_date")?.value || "";
+    if (rawDate && !normalizeInputDateToKey(rawDate)){
+      toast("Fecha inválida. Usar formato DD/MM/YYYY");
+      return;
+    }
     selectedVisitId = "";
+    onlyUnassignedConfirmed = !!$("f_onlyUnassigned")?.checked;
+    render();
+  });
+
+  $("f_onlyUnassigned")?.addEventListener("change", ()=>{
+    selectedVisitId = "";
+    onlyUnassignedConfirmed = !!$("f_onlyUnassigned")?.checked;
     render();
   });
 
@@ -277,19 +408,117 @@ function render(){
   c.querySelectorAll("[data-cancel-order]").forEach(btn=>{
     btn.addEventListener("click", ()=> cancelOrder(btn.dataset.cancelOrder));
   });
+
+  c.querySelectorAll("[data-reschedule-order]").forEach(btn=>{
+    btn.addEventListener("click", ()=> openRescheduleModal(btn.dataset.rescheduleOrder));
+  });
+
+  $("btnCloseReschedule")?.addEventListener("click", closeRescheduleModal);
+  $("btnCancelReschedule")?.addEventListener("click", closeRescheduleModal);
+  $("btnSaveReschedule")?.addEventListener("click", saveReschedule);
+}
+
+
+function openRescheduleModal(orderId){
+  const order = WORK_ORDERS.find(o=>o.id === orderId);
+  if (!order) return toast("No se encontró la orden");
+  rescheduleOrderId = orderId;
+  $("res_order").textContent = `OT ${order.orderNumber || "—"} · ${order.accountName || "—"} · ${order.siteName || "—"}`;
+  $("res_newDate").value = keyToDisplayDate(order.visitDate || "");
+  $("res_schedule").value = String(order.schedule || "");
+  $("res_reason").value = "";
+  $("rescheduleBackdrop").style.display = "flex";
+  setChecklistSelection("#res_employees", orderEmployeeRefs(order).map(ref=> ref.id));
+}
+
+function closeRescheduleModal(){
+  rescheduleOrderId = "";
+  if ($("rescheduleBackdrop")) $("rescheduleBackdrop").style.display = "none";
+}
+
+async function saveReschedule(){
+  if (!rescheduleOrderId) return;
+  const order = WORK_ORDERS.find(o=>o.id === rescheduleOrderId);
+  if (!order) return toast("No se encontró la orden");
+
+  const newDate = normalizeInputDateToKey($("res_newDate")?.value || "");
+  if (!newDate) return toast("Fecha inválida. Usar formato DD/MM/YYYY");
+
+  const employeeIds = selectedEmployeeIdsFrom("#res_employees");
+  if (!employeeIds.length) return toast("Seleccioná al menos un empleado");
+
+  const employees = employeeIds.map(id=> EMPLOYEES.find(e=>e.id===id)).filter(Boolean);
+  if (!employees.length) return toast("No se pudieron resolver empleados");
+
+  const assignedEmployees = employees.map(emp=> ({
+    id: String(emp.id || "").trim(),
+    name: employeeLabel(emp)
+  }));
+
+  const reason = String($("res_reason")?.value || "").trim();
+  const schedule = String($("res_schedule")?.value || "").trim();
+  const history = Array.isArray(order.rescheduleHistory) ? [...order.rescheduleHistory] : [];
+  history.push({
+    at: new Date().toISOString(),
+    byUid: auth.currentUser?.uid || "",
+    byName: auth.currentUser?.displayName || auth.currentUser?.email || "",
+    reason,
+    fromDate: String(order.visitDate || ""),
+    toDate: newDate,
+    fromEmployeeIds: orderEmployeeRefs(order).map(ref=> ref.id),
+    fromEmployeeNames: orderEmployeeRefs(order).map(ref=> ref.name),
+    toEmployeeIds: assignedEmployees.map(ref=> ref.id),
+    toEmployeeNames: assignedEmployees.map(ref=> ref.name)
+  });
+
+  try{
+    await update("work_orders", order.id, {
+      visitDate: newDate,
+      schedule,
+      employeeId: assignedEmployees[0]?.id || "",
+      employeeName: assignedEmployees[0]?.name || "",
+      employeeIds: assignedEmployees.map(ref=> ref.id),
+      employeeNames: assignedEmployees.map(ref=> ref.name),
+      assignedEmployees,
+      status: "Confirmada",
+      rescheduleCount: Number(order.rescheduleCount || 0) + 1,
+      rescheduleHistory: history
+    }, auth.currentUser);
+
+    if (order.visitId){
+      await update("visits", order.visitId, {
+        plannedDate: newDate,
+        status: "confirmed",
+        assignedEmployeeId: assignedEmployees[0]?.id || "",
+        assignedEmployeeName: assignedEmployees[0]?.name || "",
+        assignedEmployeeIds: assignedEmployees.map(ref=> ref.id),
+        assignedEmployeeNames: assignedEmployees.map(ref=> ref.name)
+      }, auth.currentUser);
+    }
+
+    closeRescheduleModal();
+    toast("Orden reprogramada");
+    await loadData();
+    render();
+  } catch(err){
+    console.error(err);
+    toast(err?.message || "No se pudo reprogramar");
+  }
 }
 
 async function createOrderFromSelectedVisit(){
   if (!selectedVisitId) return toast("Seleccioná una visita confirmada");
-  const employeeId = $("wo_employee").value;
-  if (!employeeId) return toast("Seleccioná un empleado");
+  const employeeIds = selectedEmployeeIdsFrom("#wo_employees");
+  if (!employeeIds.length) return toast("Seleccioná al menos un empleado");
 
   const visit = VISITS.find(v=>v.id === selectedVisitId);
   if (!visit) return toast("No se encontró la visita seleccionada");
 
   const account = ACCOUNTS.find(a=>a.id === visit.accountId);
   const site = SITES.find(s=>s.id === visit.siteId);
-  const employee = EMPLOYEES.find(e=>e.id === employeeId);
+  const employees = employeeIds
+    .map(id=> EMPLOYEES.find(e=>e.id === id))
+    .filter(Boolean);
 
   try{
     const created = await createWorkOrder({
@@ -297,7 +526,8 @@ async function createOrderFromSelectedVisit(){
       visitId: visit.id,
       account,
       site,
-      employee,
+      employees,
+      schedule: $("wo_schedule").value,
       observations: $("wo_observations").value,
       generatedBy: auth.currentUser
     });
@@ -365,6 +595,8 @@ async function cancelOrder(orderId){
 async function loadData(){
   ACCOUNTS = await list("accounts", { filters:[{ field:"status", op:"==", value:"active" }], order:{ field:"name", dir:"asc" }, max:500 });
   SITES = await list("sites", { filters:[{ field:"status", op:"==", value:"active" }], order:{ field:"name", dir:"asc" }, max:1000 });
+  const activeAccountIds = new Set(ACCOUNTS.map(a=>a.id));
+  SITES = SITES.filter(site=> activeAccountIds.has(site.accountId));
   EMPLOYEES = await list("employees", { filters:[{ field:"status", op:"==", value:"active" }], order:{ field:"lastName", dir:"asc" }, max:500 });
   VISITS = await list("visits", { order:null, max:4000 });
   WORK_ORDERS = await list("work_orders", { order:{ field:"createdAt", dir:"desc" }, max:2000 });

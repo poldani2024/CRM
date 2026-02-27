@@ -1,0 +1,4 @@
+account_name,site_name,site_address,site_city,requires_sheet,requires_certificate,status,site_notes
+ACME S.A.,Planta Norte,Av. Siempre Viva 123,Rosario,true,true,active,Acceso por portería
+ACME S.A.,Depósito Sur,Camino Viejo 456,Rosario,true,false,active,
+Banco Río,Sucursal Centro,San Martín 999,Córdoba,false,true,inactive,Sin servicio temporal

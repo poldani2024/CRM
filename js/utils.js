@@ -31,3 +31,41 @@ export function initials(name=""){
   return (a+b).toUpperCase();
 }
 
+
+
+export function keyToDisplayDate(raw=""){
+  const v = String(raw || "").trim();
+  const m = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return v;
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
+export function normalizeInputDateToKey(raw=""){
+  const v = String(raw || "").trim();
+  if (!v) return "";
+  let y, m, d;
+  let k = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (k){
+    y = Number(k[1]);
+    m = Number(k[2]);
+    d = Number(k[3]);
+  } else {
+    k = v.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+    if (!k) return "";
+    d = Number(k[1]);
+    m = Number(k[2]);
+    y = Number(k[3]);
+  }
+  if (m < 1 || m > 12 || d < 1 || d > 31 || y < 1900) return "";
+  const dt = new Date(y, m - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return "";
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+export function formatDateAR(date){
+  if (!date) return "";
+  if (typeof date === "string") return keyToDisplayDate(date);
+  const d = (date instanceof Date) ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${pad2(d.getDate())}/${pad2(d.getMonth()+1)}/${d.getFullYear()}`;
+}
