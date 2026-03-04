@@ -1,6 +1,7 @@
 import { loadShell } from "./ui_shell.js";
 import { requireRole } from "./auth.js";
-import { list } from "./data_access.js";
+import { auth } from "./firebase.js";
+import { list, update } from "./data_access.js";
 import { escapeHtml, $, toast } from "./utils.js";
 
 const DAY_NAMES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
@@ -12,6 +13,7 @@ let WORK_ORDERS = [];
 let SITES = [];
 let selectedDate = new Date();
 let selectedEmployeeId = "all";
+let dragOrderId = "";
 
 function employeeLabel(emp){
   return `${emp.lastName || ""}${emp.lastName && emp.firstName ? ", " : ""}${emp.firstName || ""}`.trim() || "Sin nombre";
@@ -34,6 +36,12 @@ function parseScheduleToMinutes(raw){
   const mm = Number(match[2]);
   if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return Number.POSITIVE_INFINITY;
   return hh * 60 + mm;
+}
+
+function scheduleMinutesPart(raw){
+  const value = String(raw || "").trim();
+  const match = value.match(/^\d{1,2}:(\d{2})$/);
+  return match ? match[1] : "00";
 }
 
 function mondayOfWeek(baseDate){
@@ -88,6 +96,16 @@ function resolveSite(order){
   return SITES.find(site=> site.id === order.siteId) || null;
 }
 
+function statusClass(status){
+  if (status === "Confirmada") return "is-confirmed";
+  if (status === "En ejecución") return "is-in-progress";
+  if (status === "Postergada") return "is-postponed";
+  if (status === "Concretada") return "is-completed";
+  if (status === "No realizada") return "is-missed";
+  if (status === "Cancelada") return "is-cancelled";
+  return "is-estimated";
+}
+
 function orderItemsInWeek(){
   const weekStart = mondayOfWeek(selectedDate);
   const days = Array.from({ length: 7 }, (_, idx)=> addDays(weekStart, idx));
@@ -112,10 +130,12 @@ function orderItemsInWeek(){
 
   return filtered.map(order=> {
     const site = resolveSite(order);
+    const scheduleMinutes = parseScheduleToMinutes(order.schedule);
     return {
       ...order,
-      hourSlot: Number.isFinite(parseScheduleToMinutes(order.schedule))
-        ? Math.max(HOUR_START, Math.min(HOUR_END, Math.floor(parseScheduleToMinutes(order.schedule) / 60)))
+      taskStatusClass: statusClass(order.status),
+      hourSlot: Number.isFinite(scheduleMinutes)
+        ? Math.max(HOUR_START, Math.min(HOUR_END, Math.floor(scheduleMinutes / 60)))
         : HOUR_START,
       siteAddress: site?.address || "Sin domicilio",
       siteCity: site?.city || "Sin localidad"
@@ -181,12 +201,13 @@ function render(){
             return `
               <div class="weekly-cell weekly-hour-label">${String(hour).padStart(2, "0")}:00</div>
               ${days.map(day=> {
-                const key = `${dateKey(day)}|${hour}`;
+                const dayKey = dateKey(day);
+                const key = `${dayKey}|${hour}`;
                 const cellOrders = byDayHour.get(key) || [];
                 return `
-                  <div class="weekly-cell weekly-slot">
+                  <div class="weekly-cell weekly-slot" data-drop-date="${dayKey}" data-drop-hour="${hour}">
                     ${cellOrders.map(order=>`
-                      <article class="weekly-task-card">
+                      <article class="weekly-task-card ${escapeHtml(order.taskStatusClass)}" draggable="true" data-order-id="${escapeHtml(order.id)}">
                         <div class="weekly-task-time">${escapeHtml(order.schedule || "Sin horario")}</div>
                         <div class="weekly-task-title">${escapeHtml(order.accountName || "Sin empresa")}</div>
                         <div class="weekly-task-meta">${escapeHtml(order.siteAddress)}</div>
@@ -228,6 +249,72 @@ function render(){
   $("btnWeekNext").addEventListener("click", ()=>{
     selectedDate = addDays(mondayOfWeek(selectedDate), 7);
     render();
+  });
+
+  wireDragAndDrop();
+}
+
+function wireDragAndDrop(){
+  document.querySelectorAll(".weekly-task-card").forEach(card=>{
+    card.addEventListener("dragstart", ev=>{
+      dragOrderId = String(card.dataset.orderId || "");
+      card.classList.add("dragging");
+      ev.dataTransfer?.setData("text/plain", dragOrderId);
+      if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "move";
+    });
+
+    card.addEventListener("dragend", ()=>{
+      card.classList.remove("dragging");
+      dragOrderId = "";
+      document.querySelectorAll(".weekly-slot.drop-hover").forEach(el=> el.classList.remove("drop-hover"));
+    });
+  });
+
+  document.querySelectorAll(".weekly-slot").forEach(slot=>{
+    slot.addEventListener("dragover", ev=>{
+      ev.preventDefault();
+      slot.classList.add("drop-hover");
+      if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
+    });
+
+    slot.addEventListener("dragleave", ()=> slot.classList.remove("drop-hover"));
+
+    slot.addEventListener("drop", async ev=>{
+      ev.preventDefault();
+      slot.classList.remove("drop-hover");
+      const orderId = ev.dataTransfer?.getData("text/plain") || dragOrderId;
+      if (!orderId) return;
+
+      const newDate = String(slot.dataset.dropDate || "");
+      const newHour = Number(slot.dataset.dropHour || "");
+      if (!newDate || !Number.isFinite(newHour)) return;
+
+      const order = WORK_ORDERS.find(item=> item.id === orderId);
+      if (!order) return;
+
+      const minutes = scheduleMinutesPart(order.schedule);
+      const newSchedule = `${String(newHour).padStart(2, "0")}:${minutes}`;
+      const sameDate = toDateKey(order.visitDate) === newDate;
+      const sameTime = String(order.schedule || "") === newSchedule;
+      if (sameDate && sameTime) return;
+
+      try{
+        await update("work_orders", orderId, {
+          visitDate: newDate,
+          schedule: newSchedule
+        }, auth.currentUser);
+
+        WORK_ORDERS = WORK_ORDERS.map(item=> item.id === orderId
+          ? { ...item, visitDate: newDate, schedule: newSchedule }
+          : item);
+
+        render();
+        toast("Horario de OT actualizado");
+      } catch (err){
+        console.error(err);
+        toast("No se pudo mover la OT");
+      }
+    });
   });
 }
 

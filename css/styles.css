@@ -644,3 +644,18 @@ a{ color:inherit; text-decoration:none; }
 .weekly-task-meta{
   color:#363a42;
 }
+.weekly-slot.drop-hover{
+  background: #e9f0ff;
+  outline: 2px dashed #1a73e8;
+  outline-offset: -2px;
+}
+.weekly-task-card.dragging{
+  opacity: .55;
+}
+.weekly-task-card.is-estimated{ background: #fff4da; border-left-color: #f2c66d; }
+.weekly-task-card.is-confirmed{ background: #ffe8d1; border-left-color: #e58f2a; }
+.weekly-task-card.is-in-progress{ background: #dce9ff; border-left-color: #1f7aff; }
+.weekly-task-card.is-postponed{ background: #ece2ff; border-left-color: #8b5cf6; }
+.weekly-task-card.is-completed{ background: #dff4e7; border-left-color: #2d9d58; }
+.weekly-task-card.is-missed{ background: #ffe1e1; border-left-color: #ce2e2e; }
+.weekly-task-card.is-cancelled{ background: #ebebeb; border-left-color: #111; }
