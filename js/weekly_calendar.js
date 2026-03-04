@@ -2,7 +2,7 @@ import { loadShell } from "./ui_shell.js";
 import { requireRole } from "./auth.js";
 import { auth } from "./firebase.js";
 import { list, update } from "./data_access.js";
-import { escapeHtml, $, toast } from "./utils.js";
+import { escapeHtml, $, toast, formatDateAR } from "./utils.js";
 
 const DAY_NAMES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 const HOUR_START = 6;
@@ -106,6 +106,21 @@ function statusClass(status){
   return "is-estimated";
 }
 
+function normalizePhoneForWhatsApp(raw){
+  let digits = String(raw || "").replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  if (digits.startsWith("549")) return digits;
+  if (digits.startsWith("54")) return digits;
+  if (digits.startsWith("0")) digits = digits.slice(1);
+  if (digits.length >= 10 && digits.length <= 11) return `54${digits}`;
+  return digits;
+}
+
+function employeeMap(){
+  return new Map(EMPLOYEES.map(emp=> [String(emp.id || ""), emp]));
+}
+
 function orderItemsInWeek(){
   const weekStart = mondayOfWeek(selectedDate);
   const days = Array.from({ length: 7 }, (_, idx)=> addDays(weekStart, idx));
@@ -143,6 +158,104 @@ function orderItemsInWeek(){
   });
 }
 
+function confirmedOrdersForDay(targetDateKey){
+  return WORK_ORDERS
+    .filter(order=> order.active !== false)
+    .filter(order=> String(order.status || "") === "Confirmada")
+    .map(order=> ({ ...order, visitDateKey: toDateKey(order.visitDate) }))
+    .filter(order=> order.visitDateKey === targetDateKey)
+    .sort((a, b)=> {
+      const bySchedule = parseScheduleToMinutes(a.schedule) - parseScheduleToMinutes(b.schedule);
+      if (bySchedule !== 0) return bySchedule;
+      return String(a.accountName || "").localeCompare(String(b.accountName || ""));
+    });
+}
+
+function buildMessageForEmployee(emp, orders, targetDateKey){
+  const dayLabel = formatDateAR(targetDateKey);
+  const lines = [
+    `Hola ${emp.firstName || employeeLabel(emp)} 👋`,
+    `Trabajo diario (${dayLabel})`,
+    "",
+    "OT confirmadas:"
+  ];
+
+  for (const [idx, order] of orders.entries()){
+    const site = resolveSite(order);
+    lines.push(`${idx + 1}) ${order.schedule || "Sin horario"} · ${order.accountName || "Sin empresa"}`);
+    lines.push(`   Domicilio: ${site?.address || "Sin domicilio"}`);
+    lines.push(`   Localidad: ${site?.city || "Sin localidad"}`);
+  }
+
+  lines.push("", "Por favor confirmar recepción.");
+  return lines.join("\n");
+}
+
+function openWhatsappChat(phone, text){
+  const url = `https://web.whatsapp.com/send?phone=${encodeURIComponent(phone)}&text=${encodeURIComponent(text)}`;
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function sendDailyWhatsapp(){
+  const targetDateKey = dateKey(selectedDate);
+  const confirmedOrders = confirmedOrdersForDay(targetDateKey);
+  const empById = employeeMap();
+
+  if (!confirmedOrders.length){
+    toast("No hay OT confirmadas para la fecha seleccionada");
+    return;
+  }
+
+  const jobsByEmployee = new Map();
+
+  for (const order of confirmedOrders){
+    const assignedIds = orderEmployeeIds(order);
+    for (const empId of assignedIds){
+      if (selectedEmployeeId !== "all" && empId !== selectedEmployeeId) continue;
+      const emp = empById.get(empId);
+      if (!emp) continue;
+      if (!jobsByEmployee.has(empId)) jobsByEmployee.set(empId, { employee: emp, orders: [] });
+      jobsByEmployee.get(empId).orders.push(order);
+    }
+  }
+
+  if (selectedEmployeeId !== "all" && !jobsByEmployee.has(selectedEmployeeId)){
+    toast("El empleado seleccionado no tiene OT confirmadas para la fecha");
+    return;
+  }
+
+  if (!jobsByEmployee.size){
+    toast("No se encontraron empleados con OT confirmadas");
+    return;
+  }
+
+  let opened = 0;
+  let missingPhone = 0;
+
+  for (const item of jobsByEmployee.values()){
+    const phone = normalizePhoneForWhatsApp(item.employee.phone || "");
+    if (!phone){
+      missingPhone += 1;
+      continue;
+    }
+    const msg = buildMessageForEmployee(item.employee, item.orders, targetDateKey);
+    openWhatsappChat(phone, msg);
+    opened += 1;
+  }
+
+  if (!opened){
+    toast("No se pudo abrir WhatsApp: faltan teléfonos en empleados");
+    return;
+  }
+
+  if (missingPhone){
+    toast(`Se abrieron ${opened} chats. ${missingPhone} empleado(s) sin teléfono.`);
+    return;
+  }
+
+  toast(`Se abrieron ${opened} chat(s) de WhatsApp`);
+}
+
 function render(){
   const c = $("pageContent");
   const weekStart = mondayOfWeek(selectedDate);
@@ -169,7 +282,7 @@ function render(){
           <div class="weekly-calendar-range">${escapeHtml(weekLabel(weekStart, weekEnd))}</div>
         </div>
 
-        <div class="row" style="gap:10px; flex-wrap:wrap;">
+        <div class="row" style="gap:10px; flex-wrap:wrap; align-items:flex-end;">
           <div class="field">
             <label>Fecha de referencia</label>
             <input id="weekDate" type="date" value="${dateKey(selectedDate)}" />
@@ -183,6 +296,7 @@ function render(){
               `).join("")}
             </select>
           </div>
+          <button class="btn btn-primary" id="btnSendDailyWhatsapp">Enviar diario por WhatsApp</button>
         </div>
       </div>
 
@@ -250,6 +364,8 @@ function render(){
     selectedDate = addDays(mondayOfWeek(selectedDate), 7);
     render();
   });
+
+  $("btnSendDailyWhatsapp").addEventListener("click", sendDailyWhatsapp);
 
   wireDragAndDrop();
 }
